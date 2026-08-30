@@ -72,6 +72,7 @@
     <string name="mute_switch">静音开关</string>
     <string name="controls_mark">标记</string>
     <string name="select_playback_speed">选择播放速度</string>
+    <string name="playback_speed_toast">倍速 %.2fx</string>
     <string name="size">大小</string>
     <string name="about_description">版本与设备信息</string>
     <string name="grant_permission">授予权限</string>

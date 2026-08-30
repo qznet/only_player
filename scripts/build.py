@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-SUPPORTED_ABIS = ("arm64-v8a", "x86_64")
+SUPPORTED_ABIS = ("arm64-v8a", "x86_64", "armeabi-v7a")
 APK_OUTPUT_DIR = Path("build/apk")
 
 
@@ -147,7 +147,9 @@ def build_type_name(build_type: str) -> str:
 
 
 def assemble_task(build_type: str) -> str:
-    return "assemble" + "".join(part.capitalize() for part in build_type.split("-"))
+    # AGP keeps hyphenated build type names as-is in the assemble task name,
+    # e.g. "release-with-debug-signing" -> "assembleRelease-with-debug-signing".
+    return "assemble" + build_type[0].upper() + build_type[1:]
 
 
 def apk_source_names(abi: str, build_type: str) -> list[str]:

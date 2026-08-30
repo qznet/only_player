@@ -1,0 +1,96 @@
+name: Build armeabi-v7a APK
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 每日 UTC 18:00，即北京时间次日 02:00
+    - cron: '0 18 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-v7a-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Sync upstream and build v7a APK
+    runs-on: ubuntu-latest
+    env:
+      # 必须显式指定：merge upstream 之后 gh 可能把仓库推断成上游
+      GH_REPO: qznet/only_player
+      UPSTREAM_REPO: https://github.com/Kindness-Kismet/only_player.git
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: 同步上游更新
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream "$UPSTREAM_REPO" 2>/dev/null || true
+          git fetch upstream main
+          if git merge --no-edit upstream/main; then
+            echo "上游合并成功，尝试推送回 fork"
+            git push origin HEAD:main || echo "推送失败，继续基于本地合并结果构建"
+          else
+            git merge --abort
+            echo "上游合并存在冲突，已回退，基于当前 fork 代码构建"
+          fi
+
+      - name: 设置 JDK 25
+        uses: actions/setup-java@v5
+        with:
+          java-version: 25
+          distribution: temurin
+
+      - name: 配置 Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: 构建 armeabi-v7a APK
+        run: |
+          chmod +x gradlew
+          python3 scripts/build.py build-apk --abi armeabi-v7a --build-type release-with-debug-signing
+
+      - name: 收集构建信息
+        id: info
+        run: |
+          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "built_at=$(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
+
+      - name: 上传 APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: only-player-armeabi-v7a
+          path: build/apk/*.apk
+          if-no-files-found: error
+
+      - name: 发布 latest Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: qznet/only_player
+          RELEASE_SHA: ${{ steps.info.outputs.sha }}
+          BUILT_AT: ${{ steps.info.outputs.built_at }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          自动构建：armeabi-v7a 单架构包。
+
+          每日同步上游 Kindness-Kismet/only_player 后构建，始终包含本 fork 的定制改动：
+          - 全屏播放（控制栏隐藏）时 DPAD_UP / DPAD_DOWN 按 0.1 步进调整倍速，范围 0.2~4.0，带倍速提示
+          - 控制栏显示时上下键仍为调节音量（保留原行为）
+
+          包名 one.only.player.release，使用 debug key 签名。
+          EOF
+          {
+            echo
+            echo "commit=$RELEASE_SHA"
+            echo "构建时间=$BUILT_AT"
+          } >> release-notes.md
+          gh release delete latest --yes 2>/dev/null || true
+          gh release create latest \
+            --title "Only Player armeabi-v7a (latest)" \
+            --notes-file release-notes.md \
+            build/apk/*.apk

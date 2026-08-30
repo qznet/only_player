@@ -97,6 +97,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import one.only.player.core.common.Logger
+import one.only.player.core.common.extensions.round
 import one.only.player.core.data.repository.ExternalSubtitleFontSource
 import one.only.player.core.model.PictureInPictureMode
 import one.only.player.core.model.PlaybackMark
@@ -120,7 +121,9 @@ import one.only.player.feature.player.model.VideoChapter
 import one.only.player.feature.player.service.previewVideoFilters
 import one.only.player.feature.player.service.showCustomPictureInPicture
 import one.only.player.feature.player.state.ControlsVisibilityState
+import one.only.player.feature.player.state.PlaybackParametersState
 import one.only.player.feature.player.state.VerticalGesture
+import one.only.player.feature.player.state.VolumeState
 import one.only.player.feature.player.state.rememberBrightnessState
 import one.only.player.feature.player.state.rememberChaptersState
 import one.only.player.feature.player.state.rememberControlsVisibilityState
@@ -128,6 +131,7 @@ import one.only.player.feature.player.state.rememberErrorState
 import one.only.player.feature.player.state.rememberMediaPresentationState
 import one.only.player.feature.player.state.rememberMetadataState
 import one.only.player.feature.player.state.rememberPictureInPictureState
+import one.only.player.feature.player.state.rememberPlaybackParametersState
 import one.only.player.feature.player.state.rememberPlaylistState
 import one.only.player.feature.player.state.rememberRotationState
 import one.only.player.feature.player.state.rememberSeekGestureState
@@ -179,6 +183,9 @@ private const val AMBIENCE_FRAME_NEAR_BLACK_AVERAGE_LUMA = 6f
 private const val AMBIENCE_FRAME_NEAR_BLACK_MAX_LUMA = 18f
 private const val AMBIENCE_VISIBLE_ALPHA_THRESHOLD = 16
 private const val CHAPTER_SWITCH_FEEDBACK_DURATION_MS = 1_400L
+private const val PLAYBACK_SPEED_MIN = 0.2f
+private const val PLAYBACK_SPEED_MAX = 4.0f
+private const val PLAYBACK_SPEED_KEYBOARD_STEP = 0.1f
 
 val LocalControlsVisibilityState = compositionLocalOf<ControlsVisibilityState?> { null }
 
@@ -198,6 +205,37 @@ internal fun resolveLongPressOverlayUiState(
     return LongPressOverlayUiState(
         speedText = String.format(Locale.US, "%.1fx", longPressSpeed),
     )
+}
+
+@OptIn(UnstableApi::class)
+private fun handleVerticalDirectionKey(
+    isIncrease: Boolean,
+    controlsVisibilityState: ControlsVisibilityState,
+    volumeState: VolumeState,
+    playbackParametersState: PlaybackParametersState,
+    context: Context,
+) {
+    if (controlsVisibilityState.isControlsVisible) {
+        if (isIncrease) {
+            volumeState.increaseVolume(shouldShowVolumePanel = true)
+        } else {
+            volumeState.decreaseVolume(shouldShowVolumePanel = true)
+        }
+        controlsVisibilityState.showControls()
+        return
+    }
+
+    val step = if (isIncrease) PLAYBACK_SPEED_KEYBOARD_STEP else -PLAYBACK_SPEED_KEYBOARD_STEP
+    val newSpeed = (playbackParametersState.speed + step)
+        .coerceIn(PLAYBACK_SPEED_MIN, PLAYBACK_SPEED_MAX)
+        .round(2)
+    playbackParametersState.setPlaybackSpeed(newSpeed)
+    Logger.debug(TAG, "Keyboard playback speed: speed=$newSpeed")
+    Toast.makeText(
+        context,
+        context.getString(coreUiR.string.playback_speed_toast, newSpeed),
+        Toast.LENGTH_SHORT,
+    ).show()
 }
 
 @OptIn(UnstableApi::class)
@@ -552,6 +590,8 @@ internal fun MediaPlayerScreen(
     val currentTapGestureState = rememberUpdatedState(tapGestureState)
     val currentControlsVisibilityState = rememberUpdatedState(controlsVisibilityState)
     val currentVolumeState = rememberUpdatedState(volumeState)
+    val playbackParametersState = rememberPlaybackParametersState(player)
+    val currentPlaybackParametersState = rememberUpdatedState(playbackParametersState)
     val keyboardController = remember {
         PlayerKeyboardController(
             onSeekBackward = {
@@ -564,13 +604,23 @@ internal fun MediaPlayerScreen(
                 currentPlayerState.value.seekByRequestedOffset(seekIncrementState.value)
                 currentControlsVisibilityState.value.showControls()
             },
-            onIncreaseVolume = {
-                currentVolumeState.value.increaseVolume(shouldShowVolumePanel = true)
-                currentControlsVisibilityState.value.showControls()
+            onUpKey = {
+                handleVerticalDirectionKey(
+                    isIncrease = true,
+                    controlsVisibilityState = currentControlsVisibilityState.value,
+                    volumeState = currentVolumeState.value,
+                    playbackParametersState = currentPlaybackParametersState.value,
+                    context = context,
+                )
             },
-            onDecreaseVolume = {
-                currentVolumeState.value.decreaseVolume(shouldShowVolumePanel = true)
-                currentControlsVisibilityState.value.showControls()
+            onDownKey = {
+                handleVerticalDirectionKey(
+                    isIncrease = false,
+                    controlsVisibilityState = currentControlsVisibilityState.value,
+                    volumeState = currentVolumeState.value,
+                    playbackParametersState = currentPlaybackParametersState.value,
+                    context = context,
+                )
             },
             onTogglePlayPause = {
                 if (currentPlayerState.value.isPlaying) {

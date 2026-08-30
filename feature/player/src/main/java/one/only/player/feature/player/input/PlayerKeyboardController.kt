@@ -5,8 +5,8 @@ import android.view.KeyEvent
 class PlayerKeyboardController(
     private val onSeekBackward: () -> Unit,
     private val onSeekForward: () -> Unit,
-    private val onIncreaseVolume: () -> Unit,
-    private val onDecreaseVolume: () -> Unit,
+    private val onUpKey: () -> Unit,
+    private val onDownKey: () -> Unit,
     private val onTogglePlayPause: () -> Unit,
     private val onStartTemporarySpeed: () -> Boolean,
     private val onStopTemporarySpeed: () -> Unit,
@@ -37,8 +37,8 @@ class PlayerKeyboardController(
             isCanceled = isCanceled,
         )
 
-        KeyEvent.KEYCODE_DPAD_UP -> handleVolumeKey(action = action, onActionDown = onIncreaseVolume)
-        KeyEvent.KEYCODE_DPAD_DOWN -> handleVolumeKey(action = action, onActionDown = onDecreaseVolume)
+        KeyEvent.KEYCODE_DPAD_UP -> handleImmediateKey(action = action, onActionDown = onUpKey)
+        KeyEvent.KEYCODE_DPAD_DOWN -> handleImmediateKey(action = action, onActionDown = onDownKey)
         KeyEvent.KEYCODE_ENTER,
         KeyEvent.KEYCODE_NUMPAD_ENTER,
         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
@@ -89,7 +89,7 @@ class PlayerKeyboardController(
         else -> false
     }
 
-    private fun handleVolumeKey(action: Int, onActionDown: () -> Unit): Boolean = when (action) {
+    private fun handleImmediateKey(action: Int, onActionDown: () -> Unit): Boolean = when (action) {
         KeyEvent.ACTION_DOWN -> {
             onActionDown()
             true

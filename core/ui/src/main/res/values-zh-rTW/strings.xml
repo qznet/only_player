@@ -192,6 +192,7 @@
     <string name="enable_video_filters_description">關閉後跳過 GPU 影片濾鏡以節省電量</string>
     <string name="video_filters_unavailable_software_decoder">軟體解碼不支援影片濾鏡</string>
     <string name="select_playback_speed">選擇播放速度</string>
+    <string name="playback_speed_toast">倍速 %.2fx</string>
     <string name="seek_gesture">跳轉手勢</string>
     <string name="require_audio_focus_desc">當此播放器播放影片時，暫停其他播放器，反之亦然。</string>
     <string name="permission_info">Only Player 應用程式需要 \"%1$s\" 權限以存取或播放媒體。沒有它，媒體存取與播放功能將無法工作。要完整地使用此應用程式，請授予權限。</string>
