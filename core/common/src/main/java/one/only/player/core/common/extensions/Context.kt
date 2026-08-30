@@ -14,6 +14,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.storage.StorageManager
+import android.os.storage.StorageVolume
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
@@ -437,20 +438,24 @@ suspend fun ContentResolver.deleteMedia(
 fun Context.getStorageVolumes(): List<File> = try {
     getSystemService(StorageManager::class.java)
         .storageVolumes
-        .mapNotNull { volume ->
-            // StorageVolume.getDirectory() 仅 API 30+；低版本用已弃用但可用的 getPath()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                volume.directory
-            } else {
-                @Suppress("DEPRECATION")
-                volume.path?.let(::File)
-            }
-        }
+        .mapNotNull { volume -> getVolumeRoot(volume) }
         .filter(File::exists)
         .ifEmpty { listOf(Environment.getExternalStorageDirectory()) }
 } catch (e: Exception) {
     Logger.error("StorageVolumes", "Failed to enumerate storage volumes", e)
     listOf(Environment.getExternalStorageDirectory())
+}
+
+// StorageVolume.getDirectory() 仅 API 30+；低版本的 getPath() 是隐藏 API，通过反射访问
+private fun getVolumeRoot(volume: StorageVolume): File? = try {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        volume.directory
+    } else {
+        val path = StorageVolume::class.java.getMethod("getPath").invoke(volume) as? String
+        path?.let(::File)
+    }
+} catch (_: Exception) {
+    null
 }
 
 fun Context.appIcon(): Bitmap? = packageManager.getApplicationInfo(packageName, 0).loadIcon(packageManager)?.toBitmapOrNull()

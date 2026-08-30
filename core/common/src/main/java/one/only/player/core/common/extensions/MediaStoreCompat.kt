@@ -19,7 +19,7 @@ fun videoCollectionUri(): Uri = if (isScopedStorage) {
 fun filesCollectionUri(): Uri = if (isScopedStorage) {
     MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
 } else {
-    MediaStore.Files.EXTERNAL_CONTENT_URI
+    MediaStore.Files.getContentUri("external")
 }
 
 fun imagesCollectionUri(): Uri = if (isScopedStorage) {
@@ -42,6 +42,6 @@ fun volumeCollectionUri(
     if (mimeType.startsWith("video/")) {
         MediaStore.Video.Media.EXTERNAL_CONTENT_URI
     } else {
-        MediaStore.Files.EXTERNAL_CONTENT_URI
+        MediaStore.Files.getContentUri("external")
     }
 }

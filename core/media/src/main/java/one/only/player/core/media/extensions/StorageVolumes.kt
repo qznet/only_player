@@ -3,7 +3,9 @@ package one.only.player.core.media.extensions
 import android.content.Context
 import android.os.Build
 import android.os.storage.StorageManager
+import android.os.storage.StorageVolume
 import android.provider.MediaStore
+import java.io.File
 import one.only.player.core.common.extensions.canonicalPathOrSelf
 import one.only.player.core.model.StoragePath
 
@@ -23,8 +25,10 @@ fun Context.mediaStorageVolumes(): List<MediaStorageVolume> = getSystemService(S
         val directory = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             volume.directory
         } else {
-            @Suppress("DEPRECATION")
-            volume.path?.let(::File)
+            val path = runCatching {
+                StorageVolume::class.java.getMethod("getPath").invoke(volume) as? String
+            }.getOrNull()
+            path?.let(::File)
         } ?: return@mapNotNull null
 
         val volumeName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
