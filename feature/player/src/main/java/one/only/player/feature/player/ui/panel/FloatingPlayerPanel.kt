@@ -58,6 +58,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import kotlin.math.roundToInt
 import one.only.player.core.ui.R
 import one.only.player.core.ui.designsystem.AppIcons
@@ -339,6 +341,7 @@ fun BoxScope.FloatingPlayerPanel(
     contentPadding: PaddingValues = PaddingValues(),
     navigationIcon: @Composable (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = LocalFloatingPlayerPanelOnDismiss.current,
+    focusRequester: FocusRequester,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val density = LocalDensity.current
@@ -428,7 +431,8 @@ fun BoxScope.FloatingPlayerPanel(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
-                                .padding(contentPadding),
+                                .padding(contentPadding)
+                                .focusRequester(focusRequester),
                             content = content,
                         )
                     }

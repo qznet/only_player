@@ -12,7 +12,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import one.only.player.core.ui.R
@@ -70,12 +72,18 @@ fun BoxScope.MenuOverlayView(
     val displayedRoute = externalRoute ?: lastVisibleRoute
     val displayedTitle = if (externalRoute != null) title else lastVisibleTitle
     val displayedCanGoBack = if (externalRoute != null) canGoBack else lastVisibleCanGoBack
+    val focusRequester = remember { FocusRequester() }
+    // 面板打开或进入二级/更深菜单时，把焦点请进面板内容，使遥控器 DPAD 可导航、确认可选中
+    LaunchedEffect(displayedRoute) {
+        focusRequester.requestFocus()
+    }
     FloatingPlayerPanel(
         shouldShow = externalRoute != null,
         title = displayedTitle,
         panelState = panelState,
         testTag = "panel_player_menu",
         onDismiss = onDismiss,
+        focusRequester = focusRequester,
         navigationIcon = if (displayedCanGoBack) {
             {
                 MiuixIconButton(

@@ -5,8 +5,8 @@ import android.view.KeyEvent
 class PlayerKeyboardController(
     private val onSeekBackward: () -> Unit,
     private val onSeekForward: () -> Unit,
-    private val onUpKey: () -> Unit,
-    private val onDownKey: () -> Unit,
+    private val onUpKey: () -> Boolean,
+    private val onDownKey: () -> Boolean,
     private val onTogglePlayPause: () -> Unit,
     private val onStartTemporarySpeed: () -> Boolean,
     private val onStopTemporarySpeed: () -> Unit,
@@ -14,6 +14,7 @@ class PlayerKeyboardController(
 
     private var isLeftKeyPressed = false
     private var isRightKeyPressed = false
+    private var isVerticalKeyConsumed = false
     private var isSpaceKeyPressed = false
     private var hasSpaceLongPressStarted = false
     private var isSpaceTemporarySpeedActive = false
@@ -89,13 +90,13 @@ class PlayerKeyboardController(
         else -> false
     }
 
-    private fun handleImmediateKey(action: Int, onActionDown: () -> Unit): Boolean = when (action) {
+    private fun handleImmediateKey(action: Int, onActionDown: () -> Boolean): Boolean = when (action) {
         KeyEvent.ACTION_DOWN -> {
-            onActionDown()
-            true
+            isVerticalKeyConsumed = onActionDown()
+            isVerticalKeyConsumed
         }
 
-        KeyEvent.ACTION_UP -> true
+        KeyEvent.ACTION_UP -> isVerticalKeyConsumed
         else -> false
     }
 

@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.tooling.preview.Preview
 import one.only.player.core.ui.theme.OnlyPlayerTheme
 import one.only.player.feature.player.ui.panel.FloatingPlayerPanel
@@ -25,6 +27,10 @@ fun BoxScope.OverlayView(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val panelState = LocalFloatingPlayerPanelState.current ?: rememberFloatingPlayerPanelState()
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(shouldShow) {
+        if (shouldShow) focusRequester.requestFocus()
+    }
     FloatingPlayerPanel(
         modifier = modifier,
         shouldShow = shouldShow,
@@ -32,6 +38,7 @@ fun BoxScope.OverlayView(
         panelState = panelState,
         testTag = testTag,
         contentPadding = contentPadding,
+        focusRequester = focusRequester,
         content = content,
     )
 }

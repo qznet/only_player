@@ -211,20 +211,15 @@ internal fun resolveLongPressOverlayUiState(
 private fun handleVerticalDirectionKey(
     isIncrease: Boolean,
     controlsVisibilityState: ControlsVisibilityState,
-    volumeState: VolumeState,
     playbackParametersState: PlaybackParametersState,
     context: Context,
-) {
+): Boolean {
+    // 非全屏（控制栏可见）时，上下键不做拦截，交给焦点系统用于导航选择屏幕按钮
     if (controlsVisibilityState.isControlsVisible) {
-        if (isIncrease) {
-            volumeState.increaseVolume(shouldShowVolumePanel = true)
-        } else {
-            volumeState.decreaseVolume(shouldShowVolumePanel = true)
-        }
-        controlsVisibilityState.showControls()
-        return
+        return false
     }
 
+    // 全屏（控制栏隐藏）时，上下键按 0.1 步进调节倍速
     val step = if (isIncrease) PLAYBACK_SPEED_KEYBOARD_STEP else -PLAYBACK_SPEED_KEYBOARD_STEP
     val newSpeed = (playbackParametersState.speed + step)
         .coerceIn(PLAYBACK_SPEED_MIN, PLAYBACK_SPEED_MAX)
@@ -236,6 +231,7 @@ private fun handleVerticalDirectionKey(
         context.getString(coreUiR.string.playback_speed_toast, newSpeed),
         Toast.LENGTH_SHORT,
     ).show()
+    return true
 }
 
 @OptIn(UnstableApi::class)
@@ -589,7 +585,6 @@ internal fun MediaPlayerScreen(
     val currentPlayerState = rememberUpdatedState(player)
     val currentTapGestureState = rememberUpdatedState(tapGestureState)
     val currentControlsVisibilityState = rememberUpdatedState(controlsVisibilityState)
-    val currentVolumeState = rememberUpdatedState(volumeState)
     val playbackParametersState = rememberPlaybackParametersState(player)
     val currentPlaybackParametersState = rememberUpdatedState(playbackParametersState)
     val keyboardController = remember {
@@ -608,7 +603,6 @@ internal fun MediaPlayerScreen(
                 handleVerticalDirectionKey(
                     isIncrease = true,
                     controlsVisibilityState = currentControlsVisibilityState.value,
-                    volumeState = currentVolumeState.value,
                     playbackParametersState = currentPlaybackParametersState.value,
                     context = context,
                 )
@@ -617,7 +611,6 @@ internal fun MediaPlayerScreen(
                 handleVerticalDirectionKey(
                     isIncrease = false,
                     controlsVisibilityState = currentControlsVisibilityState.value,
-                    volumeState = currentVolumeState.value,
                     playbackParametersState = currentPlaybackParametersState.value,
                     context = context,
                 )
