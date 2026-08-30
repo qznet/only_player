@@ -41,6 +41,23 @@ jobs:
             echo "上游合并存在冲突，已回退，基于当前 fork 代码构建"
           fi
 
+      - name: 强制保持 Android 9 适配 (minSdk 28)
+        run: |
+          # 上游同步后可能把 minSdk 改高，这里硬性钉回 28，保证 Android 9 电视可装
+          if grep -q 'android-minSdk = ' gradle/libs.versions.toml; then
+            python3 - <<'PY'
+          import re, pathlib
+          p = pathlib.Path('gradle/libs.versions.toml')
+          s = p.read_text()
+          s2 = re.sub(r'(android-minSdk\s*=\s*")[^"]*(")', r'\g<1>28\g<2>', s)
+          assert 'android-minSdk = "28"' in s2, "failed to pin minSdk to 28"
+          p.write_text(s2)
+          print("minSdk pinned to 28 (Android 9)")
+          PY
+          else
+            echo "未找到 android-minSdk，跳过"
+          fi
+
       - name: 设置 JDK 25
         uses: actions/setup-java@v5
         with:
@@ -79,8 +96,11 @@ jobs:
           自动构建：armeabi-v7a 单架构包。
 
           每日同步上游 Kindness-Kismet/only_player 后构建，始终包含本 fork 的定制改动：
+          - 兼容 Android 9（API 28）：minSdk 降至 28，并对依赖 scoped storage 的路径做版本守卫；
+            CI 构建时硬性钉回 minSdk 28，确保电视可装
           - 全屏播放（控制栏隐藏）时 DPAD_UP / DPAD_DOWN 按 0.1 步进调整倍速，范围 0.2~4.0，带倍速提示
-          - 控制栏显示时上下键仍为调节音量（保留原行为）
+          - 控制栏显示时上下键改为焦点导航，可遥控选择屏幕控制按钮；
+            各面板（菜单/倍速/字幕/音轨/章节/播放列表等）打开及进入子菜单时焦点自动进入，支持遥控器操作
 
           包名 one.only.player.release，使用 debug key 签名。
           EOF
