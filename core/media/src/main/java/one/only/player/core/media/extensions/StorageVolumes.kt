@@ -1,6 +1,7 @@
 package one.only.player.core.media.extensions
 
 import android.content.Context
+import android.os.Build
 import android.os.storage.StorageManager
 import android.provider.MediaStore
 import one.only.player.core.common.extensions.canonicalPathOrSelf
@@ -17,13 +18,26 @@ data class MediaStorageVolume(
 fun Context.mediaStorageVolumes(): List<MediaStorageVolume> = getSystemService(StorageManager::class.java)
     .storageVolumes
     .mapNotNull { volume ->
-        val directory = volume.directory ?: return@mapNotNull null
+        // StorageVolume.getDirectory() 与 getMediaStoreVolumeName() 均仅 API 30+；
+        // 低版本分别用已弃用但可用的 getPath()，以及传统单卷名 "external"
+        val directory = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            volume.directory
+        } else {
+            @Suppress("DEPRECATION")
+            volume.path?.let(::File)
+        } ?: return@mapNotNull null
+
+        val volumeName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            volume.mediaStoreVolumeName ?: "external_primary".takeIf { volume.isPrimary }
+        } else {
+            "external".takeIf { volume.isPrimary }
+        }
+
         MediaStorageVolume(
             label = volume.getDescription(this),
             rootPath = StoragePath.of(directory.path.canonicalPathOrSelf()),
             // 个别 ROM 对主存储不返回卷名，而 MediaStore 写入必须有它
-            mediaStoreVolumeName = volume.mediaStoreVolumeName
-                ?: MediaStore.VOLUME_EXTERNAL_PRIMARY.takeIf { volume.isPrimary },
+            mediaStoreVolumeName = volumeName,
             isPrimary = volume.isPrimary,
         )
     }

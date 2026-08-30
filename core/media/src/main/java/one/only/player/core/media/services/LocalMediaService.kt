@@ -28,6 +28,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import one.only.player.core.common.extensions.filesCollectionUri
+import one.only.player.core.common.extensions.isScopedStorage
 import one.only.player.core.common.Logger
 import one.only.player.core.common.extensions.VIDEO_COLLECTION_URI
 import one.only.player.core.common.extensions.canonicalPathOrSelf
@@ -67,6 +69,15 @@ class LocalMediaService @Inject constructor(
 
         if (mediaUris.isEmpty()) return@withContext deleteLocalFiles(localFiles)
 
+        // 低版本无 MediaStore 删除确认请求，直接删除本地文件并尝试删除 content URI
+        if (!isScopedStorage) {
+            val deleted = localFiles.any { it.exists() && it.isFile && it.delete() }
+            val mediaDeleted = mediaUris.any {
+                runCatching { contentResolver.delete(it, null, null) > 0 }.getOrDefault(false)
+            }
+            return@withContext deleted || mediaDeleted
+        }
+
         val isDeleteApproved = launchMediaRequest {
             MediaStore.createDeleteRequest(contentResolver, mediaUris)
         }
@@ -78,6 +89,15 @@ class LocalMediaService @Inject constructor(
 
     override suspend fun renameMedia(uri: Uri, to: String): Boolean = withContext(Dispatchers.IO) {
         val validUri = ensureMediaStoreUri(uri) ?: return@withContext false
+
+        // 低版本无写入确认请求，直接按文件路径重命名
+        if (!isScopedStorage) {
+            val path = context.getPath(validUri) ?: return@withContext false
+            val file = File(path)
+            if (!file.exists() || file.isDirectory) return@withContext false
+            val parent = file.parent ?: return@withContext false
+            return@withContext file.renameTo(File(parent, to))
+        }
 
         val isWriteApproved = launchMediaRequest {
             MediaStore.createWriteRequest(contentResolver, listOf(validUri))
@@ -406,6 +426,20 @@ class LocalMediaService @Inject constructor(
         }
 
         if (mediaStoreUri == null) return null
+
+        // 低版本无写入确认请求，按文件直接移动
+        if (!isScopedStorage) {
+            return moveMediaWithMediaStore(
+                uri = mediaStoreUri,
+                currentFile = currentFile,
+                displayName = displayName,
+                mimeType = mimeType,
+                target = target,
+            )?.also {
+                onProgress(MediaCopyProgress(copiedBytes = totalBytes, totalBytes = totalBytes))
+            }
+        }
+
         val isWriteApproved = launchMediaRequest {
             MediaStore.createWriteRequest(contentResolver, listOf(mediaStoreUri))
         }
@@ -429,6 +463,20 @@ class LocalMediaService @Inject constructor(
         mimeType: String,
         target: MediaMoveTarget,
     ): MediaMoveResult? = runCatching {
+        // 低版本无 RELATIVE_PATH / scoped 写入，直接按文件重命名到目标目录
+        if (!isScopedStorage) {
+            val dest = target.directory.resolve(displayName)
+            if (dest.exists()) return@runCatching null
+            if (!currentFile.renameTo(dest)) return@runCatching null
+            return@runCatching MediaMoveResult(
+                uri = android.net.Uri.fromFile(dest),
+                path = dest.path,
+                parentPath = dest.parent ?: target.directory.path,
+                fileName = dest.name,
+                originalPath = currentFile.path,
+            )
+        }
+
         val updated = contentResolver.updateMedia(
             uri = uri,
             contentValues = ContentValues().apply {
@@ -469,6 +517,18 @@ class LocalMediaService @Inject constructor(
         shouldCancel: () -> Boolean,
         onProgress: (MediaCopyProgress) -> Unit,
     ): MediaMoveResult? {
+        // 低版本（无 scoped storage）跨卷移动：直接文件拷贝 + 删除源，不走 MediaStore
+        if (!isScopedStorage) {
+            return moveMediaAcrossViaFile(
+                currentFile = currentFile,
+                displayName = displayName,
+                mimeType = mimeType,
+                target = target,
+                shouldCancel = shouldCancel,
+                onProgress = onProgress,
+            )
+        }
+
         val expectedFile = target.directory.resolve(displayName)
         if (expectedFile.exists()) return null
 
@@ -544,6 +604,53 @@ class LocalMediaService @Inject constructor(
             originalPath = currentFile.path,
         )
     }
+
+    // 低版本（无 scoped storage）跨卷移动：直接文件拷贝 + 删除源，不走 MediaStore
+    private suspend fun moveMediaAcrossViaFile(
+        currentFile: File,
+        displayName: String,
+        mimeType: String,
+        target: MediaMoveTarget,
+        shouldCancel: () -> Boolean,
+        onProgress: (MediaCopyProgress) -> Unit,
+    ): MediaMoveResult? = runCatching {
+        val expectedFile = target.directory.resolve(displayName)
+        if (expectedFile.exists()) return@runCatching null
+        if (!target.directory.exists() && !target.directory.mkdirs()) return@runCatching null
+
+        val totalBytes = currentFile.length()
+        onProgress(MediaCopyProgress(copiedBytes = 0L, totalBytes = totalBytes))
+        var copiedBytes = 0L
+        var lastReportedAt = SystemClock.elapsedRealtime()
+        currentFile.inputStream().buffered().use { input ->
+            expectedFile.outputStream().buffered().use { output ->
+                val buffer = ByteArray(COPY_BUFFER_SIZE)
+                while (true) {
+                    if (shouldCancel()) return@runCatching null
+                    val byteCount = input.read(buffer)
+                    if (byteCount < 0) break
+                    output.write(buffer, 0, byteCount)
+                    copiedBytes += byteCount
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastReportedAt >= COPY_PROGRESS_INTERVAL_MS) {
+                        onProgress(MediaCopyProgress(copiedBytes = copiedBytes, totalBytes = totalBytes))
+                        lastReportedAt = now
+                    }
+                }
+            }
+        }
+        onProgress(MediaCopyProgress(copiedBytes = copiedBytes, totalBytes = totalBytes))
+        if (expectedFile.length() != totalBytes) return@runCatching null
+        if (!currentFile.delete()) return@runCatching null
+
+        MediaMoveResult(
+            uri = android.net.Uri.fromFile(expectedFile),
+            path = expectedFile.path,
+            parentPath = expectedFile.parent ?: target.directory.path,
+            fileName = expectedFile.name,
+            originalPath = currentFile.path,
+        )
+    }.getOrNull()
 
     private fun copyMediaContent(
         source: File,
@@ -689,6 +796,8 @@ class LocalMediaService @Inject constructor(
         uri: Uri,
         storage: MediaStorageVolume?,
     ): Uri {
+        // 低版本 MediaStore 为单卷 URI，无需（也无法）拼接卷名路径段
+        if (!isScopedStorage) return uri
         val volumeName = storage?.mediaStoreVolumeName ?: return uri
         if (uri.authority != MediaStore.AUTHORITY) return uri
         if (uri.pathSegments.size < 2) return uri
@@ -717,7 +826,7 @@ class LocalMediaService @Inject constructor(
 
     private fun buildWritableMediaUri(uri: Uri): Uri = runCatching {
         ContentUris.withAppendedId(
-            MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
+            filesCollectionUri(),
             ContentUris.parseId(uri),
         )
     }.getOrElse { uri }
@@ -738,7 +847,7 @@ class LocalMediaService @Inject constructor(
         val collectionUri = if (mimeType.startsWith("video/")) {
             VIDEO_COLLECTION_URI
         } else {
-            MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+            filesCollectionUri()
         }
         return ContentUris.withAppendedId(collectionUri, id)
     }

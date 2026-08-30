@@ -7,6 +7,7 @@ import android.media.MediaDataSource
 import android.media.MediaMetadataRetriever
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
+import one.only.player.core.common.extensions.videoCollectionUri
 import android.provider.OpenableColumns
 import android.util.Size
 import androidx.core.graphics.drawable.toDrawable
@@ -185,7 +186,7 @@ class VideoThumbnailDecoder(
 
     // 通过文件路径查询 MediaStore 获取 content:// URI
     private fun findContentUriForPath(path: String): android.net.Uri? {
-        val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        val collection = videoCollectionUri()
         val projection = arrayOf(MediaStore.Video.Media._ID)
         return try {
             options.context.contentResolver.query(

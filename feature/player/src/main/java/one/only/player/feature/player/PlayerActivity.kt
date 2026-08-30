@@ -53,6 +53,7 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -76,6 +77,8 @@ import one.only.player.core.common.extensions.isSubtitleExtension
 import one.only.player.core.common.extensions.resolvePrivacyPreviewScrim
 import one.only.player.core.common.extensions.scanFileForContentUri
 import one.only.player.core.common.extensions.toPrivateLogSummary
+import one.only.player.core.common.extensions.imagesCollectionUri
+import one.only.player.core.common.extensions.isScopedStorage
 import one.only.player.core.common.storagePermission
 import one.only.player.core.media.container.isMpegTsStream
 import one.only.player.core.media.sync.MediaSynchronizer
@@ -945,7 +948,24 @@ open class PlayerActivity : AppCompatActivity() {
 
     private fun saveScreenshotBitmap(bitmap: android.graphics.Bitmap): Boolean {
         val fileName = buildScreenshotFileName()
-        val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+
+        // Android 9 及以下无 scoped storage，直接落文件到公共图片目录
+        if (!isScopedStorage) {
+            val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+                .resolve("Screenshots")
+            if (!dir.exists() && !dir.mkdirs()) return false
+            val file = File(dir, fileName)
+            return runCatching {
+                FileOutputStream(file).use { out ->
+                    if (!bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)) {
+                        throw IOException("Failed to compress screenshot")
+                    }
+                }
+                true
+            }.onFailure { e -> Logger.error(TAG, "Failed to save screenshot", e) }.getOrDefault(false)
+        }
+
+        val collection = imagesCollectionUri()
         val contentValues = android.content.ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
             put(MediaStore.Images.Media.MIME_TYPE, "image/png")

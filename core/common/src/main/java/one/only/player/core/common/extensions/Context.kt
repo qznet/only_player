@@ -34,7 +34,7 @@ import one.only.player.core.common.Logger
 import org.mozilla.universalchardet.UniversalDetector
 
 val VIDEO_COLLECTION_URI: Uri
-    get() = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+    get() = videoCollectionUri()
 
 fun Context.getPath(uri: Uri): String? {
     if (DocumentsContract.isDocumentUri(this, uri)) {
@@ -167,7 +167,7 @@ fun Context.getMediaContentUri(uri: Uri): Uri? {
 }
 
 fun Context.getMediaFileContentUri(path: String): Uri? {
-    val filesUri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+    val filesUri = filesCollectionUri()
     val projection = arrayOf(MediaStore.Files.FileColumns._ID)
 
     return try {
@@ -437,7 +437,15 @@ suspend fun ContentResolver.deleteMedia(
 fun Context.getStorageVolumes(): List<File> = try {
     getSystemService(StorageManager::class.java)
         .storageVolumes
-        .mapNotNull { volume -> volume.directory }
+        .mapNotNull { volume ->
+            // StorageVolume.getDirectory() 仅 API 30+；低版本用已弃用但可用的 getPath()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                volume.directory
+            } else {
+                @Suppress("DEPRECATION")
+                volume.path?.let(::File)
+            }
+        }
         .filter(File::exists)
         .ifEmpty { listOf(Environment.getExternalStorageDirectory()) }
 } catch (e: Exception) {
