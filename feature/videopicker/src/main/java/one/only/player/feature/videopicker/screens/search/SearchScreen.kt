@@ -50,6 +50,8 @@ import one.only.player.core.model.PlayerPreferences
 import one.only.player.core.model.Video
 import one.only.player.core.ui.R
 import one.only.player.core.ui.components.AppDialog
+import one.only.player.core.ui.components.AppScaffold
+import one.only.player.core.ui.components.AppSmallTopAppBar
 import one.only.player.core.ui.components.CancelButton
 import one.only.player.core.ui.components.CardListItem
 import one.only.player.core.ui.components.DoneButton
@@ -76,8 +78,6 @@ import one.only.player.feature.videopicker.state.rememberSelectionManager
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -149,7 +149,7 @@ internal fun SearchScreen(
         onEvent(SearchUiEvent.ClearDeleteResult)
     }
 
-    Scaffold(
+    AppScaffold(
         topBar = {
             if (!selectionManager.isInSelectionMode) {
                 SearchTopAppBar(
@@ -163,7 +163,7 @@ internal fun SearchScreen(
                     onClose = onNavigateUp,
                 )
             } else {
-                SmallTopAppBar(
+                AppSmallTopAppBar(
                     title = stringResource(R.string.m_n_selected, selectedItemsSize, totalItemsSize),
                     navigationIcon = {
                         IconButton(

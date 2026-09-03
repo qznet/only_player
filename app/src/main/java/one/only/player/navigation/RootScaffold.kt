@@ -23,7 +23,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -34,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.serialization.Serializable
 import one.only.player.core.ui.R as UiR
+import one.only.player.core.ui.components.surfaceBlur
 import one.only.player.core.ui.designsystem.AppIcons
 import one.only.player.core.ui.extensions.LocalRootBottomBarPadding
 import one.only.player.ui.component.FloatingBottomBar
@@ -42,13 +42,10 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.Backdrop
-import top.yukonga.miuix.kmp.blur.BlendColorEntry
-import top.yukonga.miuix.kmp.blur.BlurDefaults
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.blur.textureBlur
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 // 根 Tab 定义，每项对应一个顶级导航目的地
@@ -67,6 +64,12 @@ enum class RootDestination(
 @Serializable
 data object RootPagerRoute
 
+// 底栏与分页只渲染可见目的地，隐藏项连页面一起移除
+@Composable
+fun rememberVisibleRootDestinations(shouldShowCloudTab: Boolean): List<RootDestination> = remember(shouldShowCloudTab) {
+    RootDestination.entries.filter { it != RootDestination.CLOUD || shouldShowCloudTab }
+}
+
 @Composable
 fun RootScaffold(
     rootNavigationState: RootNavigationState,
@@ -76,9 +79,13 @@ fun RootScaffold(
     shouldShowBottomBar: Boolean = true,
     content: @Composable (RootDestination) -> Unit,
 ) {
+    val destinations = rootNavigationState.destinations
     val currentPage = rootNavigationState.pagerState.currentPage
     LaunchedEffect(currentPage) {
         rootNavigationState.syncPage()
+    }
+    LaunchedEffect(destinations) {
+        rootNavigationState.clampToDestinations()
     }
     if (!shouldShowBottomBar) {
         Box(modifier = modifier.fillMaxSize()) {
@@ -87,9 +94,9 @@ fun RootScaffold(
                 state = rootNavigationState.pagerState,
                 // 首帧只组合首页，优先显示已缓存的媒体内容。
                 beyondViewportPageCount = 0,
-                key = { page -> RootDestination.entries[page] },
+                key = { page -> destinations[page] },
             ) { page ->
-                content(RootDestination.entries[page])
+                content(destinations[page])
             }
         }
         return
@@ -108,14 +115,15 @@ fun RootScaffold(
             state = rootNavigationState.pagerState,
             // 首帧只组合首页，优先显示已缓存的媒体内容。
             beyondViewportPageCount = 0,
-            key = { page -> RootDestination.entries[page] },
+            key = { page -> destinations[page] },
         ) { page ->
             CompositionLocalProvider(LocalRootBottomBarPadding provides bottomBarPadding) {
-                content(RootDestination.entries[page])
+                content(destinations[page])
             }
         }
         RootBottomBar(
             currentRoot = rootNavigationState.selectedDestination,
+            destinations = destinations,
             shouldUseFloatingNavigationBar = shouldUseFloatingNavigationBar,
             floatingBlurBackdrop = floatingBlurBackdrop,
             onTabSelected = rootNavigationState::animateTo,
@@ -152,6 +160,7 @@ fun rememberRootBlurBackdrop(
 @Composable
 fun RootBottomBar(
     currentRoot: RootDestination,
+    destinations: List<RootDestination>,
     shouldUseFloatingNavigationBar: Boolean,
     floatingBlurBackdrop: Backdrop?,
     modifier: Modifier = Modifier,
@@ -160,6 +169,7 @@ fun RootBottomBar(
     if (shouldUseFloatingNavigationBar) {
         FloatingRootBottomBar(
             currentRoot = currentRoot,
+            destinations = destinations,
             blurBackdrop = floatingBlurBackdrop,
             modifier = modifier,
             onTabSelected = onTabSelected,
@@ -170,25 +180,10 @@ fun RootBottomBar(
     val isBlurEnabled = floatingBlurBackdrop != null
     val barColor = if (isBlurEnabled) Color.Transparent else MiuixTheme.colorScheme.surface
     NavigationBar(
-        modifier = modifier.then(
-            if (isBlurEnabled) {
-                Modifier.textureBlur(
-                    backdrop = floatingBlurBackdrop,
-                    shape = RectangleShape,
-                    blurRadius = 25f,
-                    colors = BlurDefaults.blurColors(
-                        blendColors = listOf(
-                            BlendColorEntry(color = MiuixTheme.colorScheme.surface.copy(0.8f)),
-                        ),
-                    ),
-                )
-            } else {
-                Modifier
-            },
-        ),
+        modifier = modifier.surfaceBlur(floatingBlurBackdrop),
         color = barColor,
     ) {
-        RootDestination.entries.forEach { target ->
+        destinations.forEach { target ->
             RootNavigationBarItem(
                 destination = target,
                 isSelected = currentRoot == target,
@@ -201,6 +196,7 @@ fun RootBottomBar(
 @Composable
 private fun FloatingRootBottomBar(
     currentRoot: RootDestination,
+    destinations: List<RootDestination>,
     blurBackdrop: Backdrop?,
     modifier: Modifier = Modifier,
     onTabSelected: (RootDestination) -> Unit,
@@ -209,17 +205,17 @@ private fun FloatingRootBottomBar(
     // isBlurEnabled 为 false 时 backdrop 不被采样，兜底一个空 backdrop 即可
     val fallbackBackdrop = rememberLayerBackdrop { drawContent() }
     val backdrop = blurBackdrop ?: fallbackBackdrop
-    val selectedIndex = currentRoot.ordinal
+    val selectedIndex = destinations.indexOf(currentRoot).coerceAtLeast(0)
 
     FloatingBottomBar(
         modifier = modifier.padding(bottom = navigationBarsBottom + 12.dp),
         selectedIndex = { selectedIndex },
-        onSelected = { index -> onTabSelected(RootDestination.entries[index]) },
+        onSelected = { index -> destinations.getOrNull(index)?.let(onTabSelected) },
         backdrop = backdrop,
-        tabsCount = RootDestination.entries.size,
+        tabsCount = destinations.size,
         isBlurEnabled = blurBackdrop != null,
     ) {
-        RootDestination.entries.forEach { target ->
+        destinations.forEach { target ->
             val label = stringResource(target.labelRes)
             FloatingBottomBarItem(
                 onClick = { onTabSelected(target) },

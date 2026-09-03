@@ -144,3 +144,13 @@ dependencies {
     debugImplementation(libs.kotlinx.coroutines.android)
     debugImplementation(libs.kotlinx.coroutines.guava)
 }
+
+// navigationevent 1.1.2 丢失拖动中的手势进度导致预测返回动画失效，1.2.0-alpha04 已修复，stable 后移除
+configurations.all {
+    resolutionStrategy {
+        force("androidx.navigationevent:navigationevent:1.2.0-alpha04")
+        force("androidx.navigationevent:navigationevent-android:1.2.0-alpha04")
+        force("androidx.navigationevent:navigationevent-compose:1.2.0-alpha04")
+        force("androidx.navigationevent:navigationevent-compose-android:1.2.0-alpha04")
+    }
+}

@@ -52,6 +52,7 @@ import one.only.player.core.media.sync.MediaSynchronizer
 import one.only.player.core.model.ThemeConfig
 import one.only.player.core.ui.R as UiR
 import one.only.player.core.ui.components.AppDialog
+import one.only.player.core.ui.components.LocalTopBarBlur
 import one.only.player.core.ui.composables.rememberRuntimePermissionState
 import one.only.player.core.ui.extensions.LocalRootBottomBarPadding
 import one.only.player.core.ui.theme.OnlyPlayerTheme
@@ -81,9 +82,12 @@ import one.only.player.navigation.pageEnterTransition
 import one.only.player.navigation.pageExitTransition
 import one.only.player.navigation.pagePopEnterTransition
 import one.only.player.navigation.pagePopExitTransition
+import one.only.player.navigation.pagePredictivePopEnterTransition
+import one.only.player.navigation.pagePredictivePopExitTransition
 import one.only.player.navigation.rememberRootBlurBackdrop
 import one.only.player.navigation.rememberRootBottomBarPadding
 import one.only.player.navigation.rememberRootNavigationState
+import one.only.player.navigation.rememberVisibleRootDestinations
 import one.only.player.navigation.settingsDetailNavGraph
 import one.only.player.settings.navigation.navigateToAboutPreferences
 import one.only.player.settings.navigation.navigateToAppearancePreferences
@@ -172,6 +176,7 @@ class MainActivity : AppCompatActivity() {
             val preferences = (uiState as? MainActivityUiState.Success)?.preferences
             val shouldPreventScreenshots = preferences?.shouldPreventScreenshots == true
             val shouldHideInRecents = preferences?.shouldHideInRecents == true
+            val shouldBlurTopBar = preferences?.shouldBlurTopBar != false
             LaunchedEffect(shouldPreventScreenshots, shouldHideInRecents) {
                 if (preferences == null) return@LaunchedEffect
                 this@MainActivity.applyPrivacyProtection(
@@ -191,15 +196,18 @@ class MainActivity : AppCompatActivity() {
                 shouldUseDarkTheme = shouldUseDarkTheme,
                 shouldUseDynamicColor = shouldUseDynamicColor,
             ) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MiuixTheme.colorScheme.surface,
-                ) {
-                    MainAppContent(
-                        shouldUseFloatingNavigationBar = preferences?.shouldUseFloatingNavigationBar == true,
-                        shouldBlurFloatingNavigationBar = preferences?.shouldBlurFloatingNavigationBar != false,
-                        onMediaAccessAvailable = synchronizer::startSync,
-                    )
+                CompositionLocalProvider(LocalTopBarBlur provides shouldBlurTopBar) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MiuixTheme.colorScheme.surface,
+                    ) {
+                        MainAppContent(
+                            shouldUseFloatingNavigationBar = preferences?.shouldUseFloatingNavigationBar == true,
+                            shouldBlurFloatingNavigationBar = preferences?.shouldBlurFloatingNavigationBar != false,
+                            shouldShowCloudTab = preferences?.shouldShowCloudTab != false,
+                            onMediaAccessAvailable = synchronizer::startSync,
+                        )
+                    }
                 }
             }
         }
@@ -326,6 +334,7 @@ class MainActivity : AppCompatActivity() {
     private fun MainAppContent(
         shouldUseFloatingNavigationBar: Boolean,
         shouldBlurFloatingNavigationBar: Boolean,
+        shouldShowCloudTab: Boolean,
         onMediaAccessAvailable: () -> Unit,
     ) {
         val storagePermissionState = rememberRuntimePermissionState(permission = storagePermission)
@@ -372,7 +381,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         val mainNavController = rememberNavController()
-        val rootNavigationState = rememberRootNavigationState()
+        val rootDestinations = rememberVisibleRootDestinations(shouldShowCloudTab = shouldShowCloudTab)
+        val rootNavigationState = rememberRootNavigationState(destinations = rootDestinations)
         val bottomBarPadding = rememberRootBottomBarPadding(shouldUseFloatingNavigationBar)
         val floatingBlurBackdrop = rememberRootBlurBackdrop(
             shouldBlurNavigationBar = shouldBlurFloatingNavigationBar,
@@ -412,6 +422,12 @@ class MainActivity : AppCompatActivity() {
                         exitTransition = { pageExitTransition() },
                         popEnterTransition = { pagePopEnterTransition() },
                         popExitTransition = { pagePopExitTransition() },
+                        predictivePopEnterTransition = { swipeEdge ->
+                            pagePredictivePopEnterTransition(swipeEdge)
+                        },
+                        predictivePopExitTransition = { swipeEdge ->
+                            pagePredictivePopExitTransition(swipeEdge)
+                        },
                     ) {
                         composable<RootPagerRoute> {
                             RootScaffold(
@@ -455,6 +471,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 RootBottomBar(
                     currentRoot = rootNavigationState.selectedDestination,
+                    destinations = rootDestinations,
                     shouldUseFloatingNavigationBar = shouldUseFloatingNavigationBar,
                     floatingBlurBackdrop = floatingBlurBackdrop,
                     onTabSelected = { destination ->

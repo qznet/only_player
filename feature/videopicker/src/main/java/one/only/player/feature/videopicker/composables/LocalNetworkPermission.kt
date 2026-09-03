@@ -11,6 +11,8 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import one.only.player.core.common.LOCAL_NETWORK_PERMISSION
 import one.only.player.core.common.needsLocalNetworkPermission
 import one.only.player.core.ui.R
+import one.only.player.core.ui.components.AppScaffold
+import one.only.player.core.ui.components.AppTopAppBar
 import one.only.player.core.ui.composables.PermissionDetailView
 import one.only.player.core.ui.composables.PermissionRationaleDialog
 import one.only.player.core.ui.composables.RuntimePermissionState
@@ -18,8 +20,6 @@ import one.only.player.core.ui.composables.rememberRuntimePermissionState
 import one.only.player.core.ui.designsystem.AppIcons
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
@@ -42,9 +42,9 @@ fun LocalNetworkPermissionMissingScreen(
     onGrantClick: () -> Unit,
     onNavigateUp: () -> Unit,
 ) {
-    Scaffold(
+    AppScaffold(
         topBar = {
-            TopAppBar(
+            AppTopAppBar(
                 title = stringResource(R.string.cloud_servers),
                 navigationIcon = {
                     IconButton(

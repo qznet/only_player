@@ -21,6 +21,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import one.only.player.core.model.ApplicationPreferences
 import one.only.player.core.model.StoragePath
 import one.only.player.core.ui.R
+import one.only.player.core.ui.components.AppScaffold
+import one.only.player.core.ui.components.AppTopAppBar
 import one.only.player.core.ui.components.CardItemGap
 import one.only.player.core.ui.components.ClickablePreferenceItem
 import one.only.player.core.ui.components.PageContentTopPadding
@@ -33,8 +35,6 @@ import one.only.player.core.ui.theme.OnlyPlayerTheme
 import top.yukonga.miuix.kmp.basic.Icon as MiuixIcon
 import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
@@ -66,9 +66,9 @@ private fun ScanFolderPreferencesContent(
 
     val scrollBehavior = MiuixScrollBehavior()
 
-    Scaffold(
+    AppScaffold(
         topBar = {
-            TopAppBar(
+            AppTopAppBar(
                 title = stringResource(id = R.string.scan_folders),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {

@@ -535,8 +535,12 @@
     <string name="home_title_long_press_to_root_description">长按标题栏可直接返回根目录</string>
     <string name="floating_navigation_bar">悬浮导航栏</string>
     <string name="floating_navigation_bar_description">使用圆角悬浮底部导航栏</string>
+    <string name="top_bar_blur">顶栏模糊</string>
+    <string name="top_bar_blur_description">为顶部标题栏启用背景模糊和半透明效果</string>
     <string name="floating_navigation_bar_blur">底栏模糊</string>
     <string name="floating_navigation_bar_blur_description">为底部导航栏启用背景模糊和半透明效果</string>
+    <string name="show_cloud_tab">显示云端入口</string>
+    <string name="show_cloud_tab_description">在底部导航栏显示云端标签</string>
     <string name="predictive_back_gesture">预测性返回手势</string>
     <string name="predictive_back_gesture_description">启用对预测性返回手势的支持</string>
     <string name="take_screenshot">截图</string>

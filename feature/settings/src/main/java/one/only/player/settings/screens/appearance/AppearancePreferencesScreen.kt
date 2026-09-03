@@ -27,6 +27,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import one.only.player.core.common.PredictiveBackSupport
 import one.only.player.core.model.ThemeConfig
 import one.only.player.core.ui.R
+import one.only.player.core.ui.components.AppScaffold
+import one.only.player.core.ui.components.AppTopAppBar
 import one.only.player.core.ui.components.PageContentTopPadding
 import one.only.player.core.ui.components.RadioTextButton
 import one.only.player.core.ui.components.SettingsGroupGap
@@ -40,8 +42,6 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -88,6 +88,7 @@ private fun AppearancePreferencesContent(
     val appLanguages = remember { LocalesHelper.appSupportedLocales }
     val shouldShowPredictiveBack = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
     val shouldShowNavigationBarBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    val shouldShowTopBarBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
 
     // 语言下拉：首项为系统默认，其后为受支持语言
     val languageTags = remember(appLanguages) { listOf("") + appLanguages.map { it.second } }
@@ -99,9 +100,9 @@ private fun AppearancePreferencesContent(
 
     val themeConfigs = remember { ThemeConfig.entries }
 
-    Scaffold(
+    AppScaffold(
         topBar = {
-            TopAppBar(
+            AppTopAppBar(
                 title = stringResource(id = R.string.appearance_name),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
@@ -163,6 +164,14 @@ private fun AppearancePreferencesContent(
 
             Card(modifier = Modifier.fillMaxWidth()) {
                 SwitchPreference(
+                    modifier = Modifier.testTag("switch_settings_appearance_show_cloud_tab"),
+                    title = stringResource(id = R.string.show_cloud_tab),
+                    summary = stringResource(id = R.string.show_cloud_tab_description),
+                    startAction = { PrefIcon(AppIcons.Cloud) },
+                    checked = preferences.shouldShowCloudTab,
+                    onCheckedChange = { onEvent(AppearancePreferencesEvent.ToggleShowCloudTab) },
+                )
+                SwitchPreference(
                     modifier = Modifier.testTag("switch_settings_appearance_title_long_press_home"),
                     title = stringResource(id = R.string.home_title_long_press_to_root),
                     summary = stringResource(id = R.string.home_title_long_press_to_root_description),
@@ -182,6 +191,18 @@ private fun AppearancePreferencesContent(
                         onEvent(AppearancePreferencesEvent.ToggleUseFloatingNavigationBar)
                     },
                 )
+                if (shouldShowTopBarBlur) {
+                    SwitchPreference(
+                        modifier = Modifier.testTag("switch_settings_appearance_top_bar_blur"),
+                        title = stringResource(id = R.string.top_bar_blur),
+                        summary = stringResource(id = R.string.top_bar_blur_description),
+                        startAction = { PrefIcon(AppIcons.BlurOn) },
+                        checked = preferences.shouldBlurTopBar,
+                        onCheckedChange = {
+                            onEvent(AppearancePreferencesEvent.ToggleBlurTopBar)
+                        },
+                    )
+                }
                 if (shouldShowNavigationBarBlur) {
                     SwitchPreference(
                         modifier = Modifier.testTag("switch_settings_appearance_floating_navigation_bar_blur"),

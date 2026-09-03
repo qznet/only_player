@@ -75,3 +75,25 @@ internal fun AnimatedContentTransitionScope<NavBackStackEntry>.pagePopExitTransi
         easing = NavAnimationEasing,
     ),
 )
+
+// 预测返回手势拖动阶段的转场，与 pop 转场保持同一滑动方向
+internal fun AnimatedContentTransitionScope<NavBackStackEntry>.pagePredictivePopEnterTransition(
+    swipeEdge: Int,
+): EnterTransition = slideIntoContainer(
+    towards = AnimatedContentTransitionScope.SlideDirection.End,
+    animationSpec = tween(
+        durationMillis = NAV_TRANSITION_DURATION_MS,
+        easing = NavAnimationEasing,
+    ),
+    initialOffset = { fullOffset -> fullOffset / 4 },
+)
+
+internal fun AnimatedContentTransitionScope<NavBackStackEntry>.pagePredictivePopExitTransition(
+    swipeEdge: Int,
+): ExitTransition = slideOutOfContainer(
+    towards = AnimatedContentTransitionScope.SlideDirection.End,
+    animationSpec = tween(
+        durationMillis = NAV_TRANSITION_DURATION_MS,
+        easing = NavAnimationEasing,
+    ),
+)

@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -23,6 +24,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 fun SearchTopAppBar(
@@ -37,14 +39,20 @@ fun SearchTopAppBar(
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val topBarBackdrop = LocalTopBarBackdrop.current
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
 
-    Column {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .surfaceBlur(topBarBackdrop),
+    ) {
         SmallTopAppBar(
             title = "",
+            color = if (topBarBackdrop != null) Color.Transparent else MiuixTheme.colorScheme.surface,
             navigationIcon = {
                 IconButton(
                     onClick = onClose,

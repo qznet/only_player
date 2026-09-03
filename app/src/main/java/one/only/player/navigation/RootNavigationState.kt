@@ -22,21 +22,23 @@ import kotlinx.coroutines.launch
 @Stable
 class RootNavigationState(
     val pagerState: PagerState,
+    val destinations: List<RootDestination>,
     private val coroutineScope: CoroutineScope,
 ) {
-    var selectedPage by mutableIntStateOf(pagerState.currentPage)
+    var selectedPage by mutableIntStateOf(pagerState.currentPage.coerceIn(destinations.indices))
         private set
 
     var isNavigating by mutableStateOf(false)
         private set
 
     val selectedDestination: RootDestination
-        get() = RootDestination.entries[selectedPage]
+        get() = destinations.getOrElse(selectedPage) { destinations.first() }
 
     private var navigationJob: Job? = null
 
     fun animateTo(destination: RootDestination) {
-        val targetPage = destination.ordinal
+        val targetPage = destinations.indexOf(destination)
+        if (targetPage < 0) return
         if (targetPage == selectedPage) return
 
         navigationJob?.cancel()
@@ -69,31 +71,42 @@ class RootNavigationState(
     }
 
     fun jumpTo(destination: RootDestination) {
+        val targetPage = destinations.indexOf(destination)
+        if (targetPage < 0) return
+
         navigationJob?.cancel()
         navigationJob = null
         isNavigating = false
-        selectedPage = destination.ordinal
-        pagerState.requestScrollToPage(destination.ordinal)
+        selectedPage = targetPage
+        pagerState.requestScrollToPage(targetPage)
     }
 
     fun syncPage() {
         if (isNavigating || selectedPage == pagerState.currentPage) return
         selectedPage = pagerState.currentPage
     }
+
+    // 目的地列表收缩后当前页可能越界，回退到首个目的地
+    fun clampToDestinations() {
+        if (selectedPage in destinations.indices) return
+        jumpTo(destinations.first())
+    }
 }
 
 @Composable
 fun rememberRootNavigationState(
-    initialPage: Int = RootDestination.HOME.ordinal,
+    destinations: List<RootDestination>,
+    initialDestination: RootDestination = RootDestination.HOME,
 ): RootNavigationState {
     val pagerState = rememberPagerState(
-        initialPage = initialPage,
-        pageCount = { RootDestination.entries.size },
+        initialPage = destinations.indexOf(initialDestination).coerceAtLeast(0),
+        pageCount = { destinations.size },
     )
     val coroutineScope = rememberCoroutineScope()
-    return remember(pagerState, coroutineScope) {
+    return remember(pagerState, destinations, coroutineScope) {
         RootNavigationState(
             pagerState = pagerState,
+            destinations = destinations,
             coroutineScope = coroutineScope,
         )
     }

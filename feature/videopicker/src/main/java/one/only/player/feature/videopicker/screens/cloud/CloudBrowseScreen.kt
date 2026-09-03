@@ -64,6 +64,9 @@ import one.only.player.core.model.RemoteFile
 import one.only.player.core.model.RemoteServer
 import one.only.player.core.ui.R
 import one.only.player.core.ui.components.AppDialog
+import one.only.player.core.ui.components.AppScaffold
+import one.only.player.core.ui.components.AppSmallTopAppBar
+import one.only.player.core.ui.components.AppTopAppBar
 import one.only.player.core.ui.components.CardItemGap
 import one.only.player.core.ui.components.CardListItem
 import one.only.player.core.ui.components.ListSectionTitle
@@ -95,11 +98,8 @@ import top.yukonga.miuix.kmp.basic.Icon as MiuixIcon
 import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.PullToRefresh
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
@@ -248,10 +248,10 @@ internal fun CloudBrowseScreen(
     val scrollBehavior = MiuixScrollBehavior()
     val shouldUseLargeTopBar = !isInSelectionMode && uiState.isAtRoot
 
-    Scaffold(
+    AppScaffold(
         topBar = {
             if (isInSelectionMode) {
-                SmallTopAppBar(
+                AppSmallTopAppBar(
                     title = stringResource(R.string.m_n_selected, selectedItemsSize, totalItemsSize),
                     navigationIcon = {
                         MiuixIconButton(
@@ -329,7 +329,7 @@ internal fun CloudBrowseScreen(
                     },
                 )
             } else if (shouldUseLargeTopBar) {
-                TopAppBar(
+                AppTopAppBar(
                     title = serverName,
                     scrollBehavior = scrollBehavior,
                     navigationIcon = {
@@ -358,7 +358,7 @@ internal fun CloudBrowseScreen(
                     },
                 )
             } else {
-                SmallTopAppBar(
+                AppSmallTopAppBar(
                     title = serverName,
                     navigationIcon = {
                         MiuixIconButton(

@@ -35,6 +35,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -65,9 +66,13 @@ import one.only.player.core.model.Video
 import one.only.player.core.ui.R
 import one.only.player.core.ui.base.DataState
 import one.only.player.core.ui.components.AppDialog
+import one.only.player.core.ui.components.AppScaffold
+import one.only.player.core.ui.components.AppTopAppBar
 import one.only.player.core.ui.components.CancelButton
 import one.only.player.core.ui.components.DoneButton
+import one.only.player.core.ui.components.LocalTopBarBackdrop
 import one.only.player.core.ui.components.PageContentTopPadding
+import one.only.player.core.ui.components.surfaceBlur
 import one.only.player.core.ui.composables.PermissionMissingView
 import one.only.player.core.ui.composables.rememberRuntimePermissionState
 import one.only.player.core.ui.designsystem.AppIcons
@@ -102,13 +107,11 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.PullToRefresh
-import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.TopAppBarDefaults
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -303,7 +306,7 @@ internal fun MediaPickerScreen(
         isLibraryMode &&
         uiState.folderName == null
 
-    Scaffold(
+    AppScaffold(
         topBar = {
             MediaPickerTopAppBar(
                 title = topBarTitle,
@@ -835,7 +838,7 @@ private fun MediaPickerTopAppBar(
     actions: @Composable RowScope.() -> Unit,
 ) {
     if (shouldUseLargeTitle) {
-        TopAppBar(
+        AppTopAppBar(
             title = title,
             titlePadding = largeTitlePadding,
             scrollBehavior = scrollBehavior,
@@ -884,13 +887,15 @@ private fun MediaPickerSmallTitleTopAppBar(
         Modifier
     }
 
+    val topBarBackdrop = LocalTopBarBackdrop.current
     Surface(
-        color = MiuixTheme.colorScheme.surface,
+        color = if (topBarBackdrop != null) Color.Transparent else MiuixTheme.colorScheme.surface,
         modifier = Modifier
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
             .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Horizontal))
-            .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
+            .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top))
+            .surfaceBlur(topBarBackdrop),
     ) {
         Row(
             modifier = Modifier

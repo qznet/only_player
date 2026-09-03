@@ -535,8 +535,12 @@
     <string name="home_title_long_press_to_root_description">長按標題列可直接返回根目錄</string>
     <string name="floating_navigation_bar">懸浮導覽列</string>
     <string name="floating_navigation_bar_description">使用圓角懸浮底部導覽列</string>
+    <string name="top_bar_blur">頂欄模糊</string>
+    <string name="top_bar_blur_description">為頂部標題列啟用背景模糊和半透明效果</string>
     <string name="floating_navigation_bar_blur">底欄模糊</string>
     <string name="floating_navigation_bar_blur_description">為底部導覽列啟用背景模糊和半透明效果</string>
+    <string name="show_cloud_tab">顯示雲端入口</string>
+    <string name="show_cloud_tab_description">在底部導覽列顯示雲端標籤</string>
     <string name="predictive_back_gesture">預測性返回手勢</string>
     <string name="predictive_back_gesture_description">啟用預測性返回手勢支援</string>
     <string name="take_screenshot">截圖</string>

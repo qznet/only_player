@@ -22,6 +22,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import one.only.player.core.ui.R
+import one.only.player.core.ui.components.AppScaffold
+import one.only.player.core.ui.components.AppTopAppBar
 import one.only.player.core.ui.components.PageContentTopPadding
 import one.only.player.core.ui.components.SearchTopAppBar
 import one.only.player.core.ui.designsystem.AppIcons
@@ -30,8 +32,6 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon as MiuixIcon
 import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -43,18 +43,19 @@ fun SettingsScreen(
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     val scrollBehavior = MiuixScrollBehavior()
-    val shouldIndexFloatingNavigationBarBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    // API 33 以下模糊效果不可用，相关开关不进搜索索引
+    val shouldIndexBlurSettings = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    val nonIndexedBlurSettingResIds = setOf(
+        R.string.top_bar_blur,
+        R.string.top_bar_blur_description,
+        R.string.floating_navigation_bar_blur,
+        R.string.floating_navigation_bar_blur_description,
+    )
 
     // resolve 标题、描述和子设置项文本，全部用于搜索匹配
     val resolvedRows = SettingRow.entries.map { row ->
         val subTexts = row.subSettingResIds
-            .filter { resId ->
-                shouldIndexFloatingNavigationBarBlur ||
-                    (
-                        resId != R.string.floating_navigation_bar_blur &&
-                            resId != R.string.floating_navigation_bar_blur_description
-                        )
-            }
+            .filter { resId -> shouldIndexBlurSettings || resId !in nonIndexedBlurSettingResIds }
             .map { stringResource(it) }
         ResolvedSettingRow(
             row = row,
@@ -80,7 +81,7 @@ fun SettingsScreen(
         ResolvedSettingSection(section = section, rows = sectionRows).takeIf { sectionRows.isNotEmpty() }
     }
 
-    Scaffold(
+    AppScaffold(
         topBar = {
             AnimatedContent(
                 targetState = isSearchActive,
@@ -99,7 +100,7 @@ fun SettingsScreen(
                         },
                     )
                 } else {
-                    TopAppBar(
+                    AppTopAppBar(
                         title = stringResource(id = R.string.settings),
                         scrollBehavior = scrollBehavior,
                         navigationIcon = if (onNavigateUp != null) {
@@ -248,8 +249,12 @@ internal enum class SettingRow(
             R.string.home_title_long_press_to_root_description,
             R.string.floating_navigation_bar,
             R.string.floating_navigation_bar_description,
+            R.string.top_bar_blur,
+            R.string.top_bar_blur_description,
             R.string.floating_navigation_bar_blur,
             R.string.floating_navigation_bar_blur_description,
+            R.string.show_cloud_tab,
+            R.string.show_cloud_tab_description,
             R.string.predictive_back_gesture,
         ),
     ),

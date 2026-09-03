@@ -1,5 +1,5 @@
-- Scan videos on USB drives and SD cards that were previously missed
+- Restore the slide animation for the predictive back gesture
 
 ---
 
-- 扫描此前会被漏掉的 U 盘和 SD 卡里的视频
+- 恢复预测性返回手势的页面滑动动画
