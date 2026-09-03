@@ -31,7 +31,8 @@ fun hasLocalNetworkPermission(context: Context): Boolean {
         PackageManager.PERMISSION_GRANTED
 }
 
-fun hasManageExternalStorageAccess(): Boolean = Environment.isExternalStorageManager()
+fun hasManageExternalStorageAccess(): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
 
 fun createManageExternalStorageAccessIntent(context: Context): Intent {
     val manageAppIntent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
