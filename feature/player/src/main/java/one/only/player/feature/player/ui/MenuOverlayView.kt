@@ -28,7 +28,6 @@ import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
 
 sealed interface MenuRoute {
     data object Root : MenuRoute
-    data object ControlLock : MenuRoute
     data object Mute : MenuRoute
     data object AmbienceMode : MenuRoute
     data object MirrorVideo : MenuRoute
