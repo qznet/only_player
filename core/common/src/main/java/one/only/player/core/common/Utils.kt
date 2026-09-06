@@ -31,10 +31,20 @@ fun hasLocalNetworkPermission(context: Context): Boolean {
         PackageManager.PERMISSION_GRANTED
 }
 
+// API < 30 无 MANAGE_EXTERNAL_STORAGE 概念，传统存储下读写权限即全量访问，
+// 必须返回 true，否则 UI 会误显示"授权所有文件"入口，点击后在低版本直接崩
 fun hasManageExternalStorageAccess(): Boolean =
-    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()
 
 fun createManageExternalStorageAccessIntent(context: Context): Intent {
+    // API < 30 没有"所有文件访问"设置页，回退到应用详情页（始终可解析，不会 ActivityNotFoundException）
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+        return Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.parse("package:${context.packageName}")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
     val manageAppIntent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
         data = Uri.parse("package:${context.packageName}")
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
