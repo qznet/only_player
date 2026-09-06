@@ -2,6 +2,7 @@ package one.only.player.feature.player.state
 
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.os.Build
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
@@ -96,6 +97,9 @@ class RotationState(
     private fun releaseOrientationRequestIfLetterboxed() {
         if (activity.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) return
         if (activity.isInMultiWindowMode) return
+        // WindowManager#currentWindowMetrics/maximumWindowMetrics 仅 API 30+；
+        // 低版本不存在 ignoreOrientationRequest，不会出现 letterbox，直接跳过
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
         val windowManager = activity.windowManager
         val windowBounds = windowManager.currentWindowMetrics.bounds
         val displayBounds = windowManager.maximumWindowMetrics.bounds

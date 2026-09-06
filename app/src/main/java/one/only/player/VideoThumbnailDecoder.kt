@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaDataSource
 import android.media.MediaMetadataRetriever
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import one.only.player.core.common.extensions.videoCollectionUri
@@ -162,6 +163,9 @@ class VideoThumbnailDecoder(
 
     // 优先使用系统缩略图服务，质量优于 FFmpeg 提取帧
     private fun tryLoadSystemThumbnail(): Bitmap? {
+        // ContentResolver#loadThumbnail 仅 API 29+，且 NoSuchMethodError 非 Exception，
+        // 下面的 catch 兜不住，必须显式版本分流走 FFmpeg 降级
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
         val uri = when (val metadata = source.metadata) {
             is ContentMetadata -> metadata.uri.toAndroidUri()
             else -> {

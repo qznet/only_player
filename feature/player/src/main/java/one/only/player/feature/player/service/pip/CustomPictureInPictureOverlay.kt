@@ -8,8 +8,10 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.PixelFormat
+import android.graphics.Point
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -546,7 +548,16 @@ internal class CustomPictureInPictureOverlay(
         return OverlaySize(width = resolvedWidth, height = resolvedHeight)
     }
 
-    private fun screenBounds(): Rect = Rect(windowManager.maximumWindowMetrics.bounds)
+    // maximumWindowMetrics 仅 API 30+，低版本走 Display#getRealSize 降级
+    private fun screenBounds(): Rect =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Rect(windowManager.maximumWindowMetrics.bounds)
+        } else {
+            val point = Point()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealSize(point)
+            Rect(0, 0, point.x, point.y)
+        }
 
     private fun dp(value: Int): Int = (value * context.resources.displayMetrics.density).roundToInt()
 

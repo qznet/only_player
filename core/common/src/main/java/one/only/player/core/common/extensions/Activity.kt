@@ -16,7 +16,8 @@ fun Activity.applyNavigationBarStyle(
     if (window.navigationBarColor != color) {
         window.navigationBarColor = color
     }
-    if (window.isNavigationBarContrastEnforced) {
+    // Window#isNavigationBarContrastEnforced 仅 API 29+，低版本默认行为即无对比度强制
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && window.isNavigationBarContrastEnforced) {
         window.isNavigationBarContrastEnforced = false
     }
 
