@@ -8,14 +8,13 @@ import top.yukonga.miuix.kmp.preference.SliderPreference
 @Composable
 fun PreferenceSlider(
     modifier: Modifier = Modifier,
-    sliderModifier: Modifier = Modifier,
     title: String,
     description: String? = null,
     icon: ImageVector? = null,
     isEnabled: Boolean = true,
-    isSliderEnabled: Boolean = isEnabled,
     value: Float,
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
+    steps: Int = 0,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit = {},
     trailingContent: @Composable () -> Unit = {},
@@ -28,8 +27,9 @@ fun PreferenceSlider(
             summary = description,
             startAction = icon?.let { { PreferenceIcon(it, isEnabled) } },
             endActions = { trailingContent() },
-            enabled = isEnabled && isSliderEnabled,
+            enabled = isEnabled,
             valueRange = valueRange,
+            steps = steps,
             onValueChangeFinished = onValueChangeFinished,
         )
     }

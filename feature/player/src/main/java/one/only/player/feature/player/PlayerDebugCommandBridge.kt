@@ -26,6 +26,7 @@ object PlayerDebugCommandBridge {
     const val ACTION_SHOW_SCALE = "show_scale"
     const val ACTION_SHOW_DECODER = "show_decoder"
     const val ACTION_SHOW_VIDEO_FILTERS = "show_video_filters"
+    const val ACTION_SHOW_AUDIO_EQUALIZER = "show_audio_equalizer"
     const val ACTION_PIP = "pip"
     const val ACTION_SCREENSHOT = "screenshot"
     const val ACTION_BACKGROUND = "background"

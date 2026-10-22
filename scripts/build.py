@@ -14,6 +14,10 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from prebuild import MIN_JDK, Jdk, current_portable_jdk, detect_sdk, read_java_major
+
 SUPPORTED_ABIS = ("arm64-v8a", "x86_64", "armeabi-v7a")
 APK_OUTPUT_DIR = Path("build/apk")
 
@@ -62,6 +66,7 @@ def run_process(
     executable: str | Path,
     args: list[str],
     cwd: Path | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     cmd = build_command(executable, args)
     if console.verbose:
@@ -70,7 +75,7 @@ def run_process(
     result = subprocess.run(
         cmd,
         cwd=cwd,
-        env={**os.environ, "PYTHONUTF8": "1"},
+        env={**(env or os.environ), "PYTHONUTF8": "1"},
         text=True,
         encoding="utf-8",
         errors="replace",
@@ -114,6 +119,10 @@ def read_app_name(project_root: Path) -> str:
         return sanitize_file_part(label)
     resource_name = label.removeprefix("@string/")
     for strings_file in sorted(project_root.glob("**/src/main/res/values/strings.xml")):
+        # 排除隐藏目录与构建产物目录，避免参考源码污染 app 名
+        dir_parts = strings_file.relative_to(project_root).parts[:-1]
+        if any(part.startswith(".") or part == "build" for part in dir_parts):
+            continue
         content = strings_file.read_text(encoding="utf-8")
         string_match = re.search(rf'<string\s+name="{re.escape(resource_name)}"[^>]*>(.*?)</string>', content)
         if string_match:
@@ -140,6 +149,31 @@ def resolve_abis(abi: str | None) -> list[str]:
 
 def gradlew_path(project_root: Path) -> Path:
     return project_root / ("gradlew.bat" if os.name == "nt" else "gradlew")
+
+
+# 便携 JDK 优先；CI 由 setup-java 提供系统 JDK，此时回退到 JAVA_HOME
+def resolve_build_jdk(console: Console, project_root: Path) -> Jdk:
+    portable = current_portable_jdk(project_root)
+    if portable is not None:
+        console.info(f"jdk=portable {portable.home.relative_to(project_root).as_posix()} major={portable.major}")
+        return portable
+    system_home = os.environ.get("JAVA_HOME")
+    major = read_java_major(Path(system_home)) if system_home else None
+    if system_home is None or major is None or major < MIN_JDK:
+        fail(f"JDK {MIN_JDK}+ not found; run python scripts/prebuild.py")
+    console.info(f"jdk=system {system_home} major={major}")
+    return Jdk(Path(system_home), major)
+
+
+# JDK home 经 -D 传给 Gradle，不写 local.properties；JDK_HOME 会盖过 JAVA_HOME，必须清掉
+def gradle_env(java_home: Path, sdk_dir: Path) -> dict[str, str]:
+    env = {
+        **os.environ,
+        "JAVA_HOME": str(java_home),
+        "ANDROID_HOME": str(sdk_dir),
+    }
+    env.pop("JDK_HOME", None)
+    return env
 
 
 def build_type_name(build_type: str) -> str:
@@ -220,9 +254,23 @@ def build_apk(args: argparse.Namespace) -> None:
         clean_output_dir(project_root)
         console.ok("output dir cleaned")
 
+    jdk = resolve_build_jdk(console, project_root)
+    sdk_dir = detect_sdk(project_root, verbose=args.verbose)
+
     console.step(1, 2, "Build APK")
-    gradle_args = [assemble_task(build_type), f"-PabiFilter={','.join(abis)}", *signing_args_from_env()]
-    result = run_process(console, gradlew_path(project_root), gradle_args, cwd=project_root)
+    gradle_args = [
+        f"-Dorg.gradle.java.home={jdk.home}",
+        assemble_task(build_type),
+        f"-PabiFilter={','.join(abis)}",
+        *signing_args_from_env(),
+    ]
+    result = run_process(
+        console,
+        gradlew_path(project_root),
+        gradle_args,
+        cwd=project_root,
+        env=gradle_env(jdk.home, sdk_dir),
+    )
     if result.returncode != 0:
         fail("apk build failed")
     console.ok("apk build done")

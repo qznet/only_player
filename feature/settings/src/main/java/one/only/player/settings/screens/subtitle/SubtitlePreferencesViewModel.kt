@@ -13,6 +13,8 @@ import kotlinx.coroutines.launch
 import one.only.player.core.data.repository.PreferencesRepository
 import one.only.player.core.data.repository.SubtitleFontRepository
 import one.only.player.core.model.Font
+import one.only.player.core.model.OnlineSubtitleLanguageFilter
+import one.only.player.core.model.OnlineSubtitleProvider
 import one.only.player.core.model.PlayerPreferences
 import one.only.player.core.model.withSubtitleStyleFrom
 
@@ -55,6 +57,8 @@ class SubtitlePreferencesViewModel @Inject constructor(
             SubtitlePreferencesUiEvent.ToggleSubtitleAutoLoad -> toggleSubtitleAutoLoad()
             SubtitlePreferencesUiEvent.ToggleRememberSubtitleTrack -> toggleRememberSubtitleTrack()
             is SubtitlePreferencesUiEvent.UpdateSubtitleLanguage -> updateSubtitleLanguage(event.value)
+            is SubtitlePreferencesUiEvent.UpdateOnlineSubtitleLanguage -> updateOnlineSubtitleLanguage(event.value)
+            is SubtitlePreferencesUiEvent.ToggleOnlineSubtitleProvider -> toggleOnlineSubtitleProvider(event.value)
             is SubtitlePreferencesUiEvent.UpdateSubtitleFont -> updateSubtitleFont(event.value)
             SubtitlePreferencesUiEvent.ToggleSubtitleTextBold -> toggleSubtitleTextBold()
             is SubtitlePreferencesUiEvent.UpdateSubtitleFontSize -> updateSubtitleFontSize(event.value)
@@ -96,6 +100,22 @@ class SubtitlePreferencesViewModel @Inject constructor(
         viewModelScope.launch {
             preferencesRepository.updatePlayerPreferences {
                 it.copy(shouldRememberSubtitleTrack = !it.shouldRememberSubtitleTrack)
+            }
+        }
+    }
+
+    private fun updateOnlineSubtitleLanguage(language: OnlineSubtitleLanguageFilter) {
+        viewModelScope.launch {
+            preferencesRepository.updatePlayerPreferences {
+                it.copy(onlineSubtitleSearchPreferences = it.onlineSubtitleSearchPreferences.copy(languageFilter = language))
+            }
+        }
+    }
+
+    private fun toggleOnlineSubtitleProvider(provider: OnlineSubtitleProvider) {
+        viewModelScope.launch {
+            preferencesRepository.updatePlayerPreferences {
+                it.copy(onlineSubtitleSearchPreferences = it.onlineSubtitleSearchPreferences.withProviderToggled(provider))
             }
         }
     }
@@ -204,6 +224,7 @@ data class SubtitlePreferencesUiState(
 )
 
 sealed interface SubtitlePreferenceDialog {
+    data object OnlineSubtitleLanguageDialog : SubtitlePreferenceDialog
     data object SubtitleLanguageDialog : SubtitlePreferenceDialog
     data object SubtitleFontDialog : SubtitlePreferenceDialog
     data object SubtitleEncodingDialog : SubtitlePreferenceDialog
@@ -220,6 +241,8 @@ sealed interface SubtitlePreferencesResultMessage {
 }
 
 sealed interface SubtitlePreferencesUiEvent {
+    data class UpdateOnlineSubtitleLanguage(val value: OnlineSubtitleLanguageFilter) : SubtitlePreferencesUiEvent
+    data class ToggleOnlineSubtitleProvider(val value: OnlineSubtitleProvider) : SubtitlePreferencesUiEvent
     data class ShowDialog(val value: SubtitlePreferenceDialog?) : SubtitlePreferencesUiEvent
     data object ToggleSubtitleAutoLoad : SubtitlePreferencesUiEvent
     data object ToggleRememberSubtitleTrack : SubtitlePreferencesUiEvent

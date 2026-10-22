@@ -340,6 +340,7 @@ fun BoxScope.FloatingPlayerPanel(
     testTag: String? = null,
     contentPadding: PaddingValues = PaddingValues(),
     navigationIcon: @Composable (() -> Unit)? = null,
+    trailingActions: @Composable (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = LocalFloatingPlayerPanelOnDismiss.current,
     focusRequester: FocusRequester,
     content: @Composable ColumnScope.() -> Unit,
@@ -422,6 +423,7 @@ fun BoxScope.FloatingPlayerPanel(
                             title = title,
                             titleColor = tokens.contentColor,
                             navigationIcon = navigationIcon,
+                            trailingActions = trailingActions,
                             onDismiss = onDismiss,
                             onMove = { dragAmount ->
                                 panelState.moveBy(dragAmount.x, dragAmount.y, layout)
@@ -447,6 +449,7 @@ private fun PanelHeader(
     title: String,
     titleColor: Color,
     navigationIcon: @Composable (() -> Unit)?,
+    trailingActions: @Composable (() -> Unit)?,
     onDismiss: (() -> Unit)?,
     onMove: (Offset) -> Unit,
 ) {
@@ -478,6 +481,9 @@ private fun PanelHeader(
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
         )
+        if (trailingActions != null) {
+            trailingActions()
+        }
         if (onDismiss != null) {
             val closeDescription = stringResource(R.string.player_panel_close)
             MiuixIconButton(

@@ -1,13 +1,18 @@
 package one.only.player.feature.player.service.audio
 
 import android.media.audiofx.LoudnessEnhancer
+import androidx.annotation.OptIn
 import androidx.media3.common.C
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.util.UnstableApi
 import one.only.player.core.common.Logger
 import one.only.player.core.model.PlayerPreferences
 
+@OptIn(UnstableApi::class)
 internal class AudioEffectsCoordinator {
 
-    val volumeNormalizationAudioProcessor = VolumeNormalizationAudioProcessor()
+    private var volumeNormalizationAudioProcessor: VolumeNormalizationAudioProcessor? = null
+    private var equalizerAudioProcessor: EqualizerAudioProcessor? = null
 
     private var loudnessEnhancer: LoudnessEnhancer? = null
     var requestedVolumeGain: Int = 0
@@ -15,6 +20,19 @@ internal class AudioEffectsCoordinator {
 
     val isLoudnessGainSupported: Boolean
         get() = loudnessEnhancer != null
+
+    fun createAudioProcessors(preferences: PlayerPreferences): Array<AudioProcessor> {
+        // 切换解码器时新旧播放器短暂共存，处理器状态不能共用
+        val normalization = VolumeNormalizationAudioProcessor().apply {
+            isEnabled = preferences.isVolumeNormalizationEnabled
+        }
+        val equalizer = EqualizerAudioProcessor().apply {
+            applySettings(preferences.toAudioEqualizerSettings())
+        }
+        volumeNormalizationAudioProcessor = normalization
+        equalizerAudioProcessor = equalizer
+        return arrayOf(normalization, equalizer)
+    }
 
     fun setEnhancerTargetGain(
         gain: Int,
@@ -65,8 +83,13 @@ internal class AudioEffectsCoordinator {
     }
 
     fun applyVolumeNormalization(isEnabled: Boolean) {
-        volumeNormalizationAudioProcessor.isEnabled = isEnabled
+        volumeNormalizationAudioProcessor?.isEnabled = isEnabled
         Logger.debug(TAG, "Apply volume normalization: enabled=$isEnabled")
+    }
+
+    fun applyEqualizer(settings: AudioEqualizerSettings) {
+        equalizerAudioProcessor?.applySettings(settings)
+        Logger.debug(TAG, "Apply audio equalizer: enabled=${settings.isEnabled} levels=${settings.bandLevelsDb}")
     }
 
     private fun applyLoudnessEnhancerGain() {

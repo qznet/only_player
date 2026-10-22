@@ -268,9 +268,16 @@ File(path.value).delete()
 
 ---
 
+## Git Workflow
+
+- 创建提交、修改提交信息或整理提交历史前，必须阅读并遵守 [commit 技能](.codex/skills/commit/SKILL.md)，提交信息格式以该技能为准。
+- 创建、说明或合并 Pull Request 前，必须阅读并遵守 [pr 技能](.codex/skills/pr/SKILL.md)。功能 PR 打向 `dev`，只有晋升正式版时才把 `dev` 打向 `main`。
+- 任务每完成一部分就对该部分改动发起 commit，不要等全部做完再一次性提交
+- 除非用户明确要求，不得擅自执行 git push；推送前必须说明待推送的提交内容并等待用户确认
+
 ## Version Bump
 
-使用 `/version-bump` 触发；版本号、changelog、依赖更新和提交规则以本地 version-bump skill 为准。
+使用 `/version-bump` 触发；版本号、changelog、依赖更新和版本提交模板遵守本地 `version-bump` 技能，通用提交规则仍遵守 `commit` 技能。
 
 ## Code Quality
 
@@ -279,7 +286,13 @@ File(path.value).delete()
 只有改动涉及 Kotlin、Gradle、资源、Manifest 等代码或格式相关文件时，才运行 `ktlintFormat` 和 `ktlintCheck`。
 纯文档、changelog、提交信息、issue 元数据、版本说明等非代码改动，不需要运行 check，除非用户明确要求。
 
-编译 APK 优先使用项目脚本，按需指定 ABI 和构建类型：
+首次构建或环境缺失时先执行 prebuild，它会补齐 Gradle wrapper、把便携 Temurin JDK 26 下载到 `build/jdk/` 并校验 Android SDK：
+
+```bash
+python scripts/prebuild.py
+```
+
+编译 APK 优先使用项目脚本，按需指定 ABI 和构建类型；脚本会把 `build/jdk/` 下的便携 JDK 传给 Gradle：
 
 ```bash
 python scripts/build.py build-apk --abi arm64-v8a --build-type debug
@@ -294,11 +307,11 @@ python scripts/build.py build-apk --abi arm64-v8a --build-type debug
 涉及构建、运行逻辑、依赖、资源、Manifest 或 APK 行为时，按需运行完整构建命令，并检查 test 报告；当前 `test` 不能只看退出码判断通过：
 
 ```bash
-./gradlew ktlintCheck test assembleDebug --warning-mode=fail
+./gradlew ktlintCheck test assembleDebug --warning-mode=all
 ```
 
 ### UI 控件标识
 
 所有需要交互的 Compose 控件必须添加 `Modifier.testTag()` 或 `contentDescription`，保证 debug 指令和 UI 自动化可以稳定定位。
 
-JDK 25 required. Android minSdk 30, targetSdk 37.
+JDK 26 required (portable copy provisioned by `scripts/prebuild.py`). Android minSdk 30, targetSdk 37.

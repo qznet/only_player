@@ -5,14 +5,18 @@ import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -24,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -32,6 +37,7 @@ import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -40,17 +46,22 @@ import androidx.core.content.pm.PackageInfoCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import one.only.player.core.common.extensions.appIcon
+import one.only.player.core.model.UpdateChannel
 import one.only.player.core.ui.R
 import one.only.player.core.ui.components.AppScaffold
+import one.only.player.core.ui.components.AppUpdateDialog
 import one.only.player.core.ui.components.ClickablePreferenceItem
 import one.only.player.core.ui.components.LocalTopBarBackdrop
 import one.only.player.core.ui.components.PreferenceGroup
 import one.only.player.core.ui.components.PreferenceItem
 import one.only.player.core.ui.components.PreferenceSwitch
+import one.only.player.core.ui.components.RadioTextButton
 import one.only.player.core.ui.components.SettingsGroupGap
 import one.only.player.core.ui.components.surfaceBlur
 import one.only.player.core.ui.designsystem.AppIcons
 import one.only.player.core.ui.extensions.withBottomFallback
+import one.only.player.settings.composables.OptionsDialog
+import one.only.player.settings.extensions.name
 import one.only.player.settings.screens.about.effect.FlowLightBackground
 import top.yukonga.miuix.kmp.basic.Icon as MiuixIcon
 import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
@@ -100,8 +111,8 @@ fun AboutPreferencesScreen(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(innerPadding.withBottomFallback())
-                    // 小标题顶栏较矮，hero 区需要额外的顶部留白
-                    .padding(top = 50.dp)
+                    // 应用信息与支持入口共用顶部留白
+                    .padding(top = 32.dp)
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(SettingsGroupGap),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -144,8 +155,7 @@ private fun UpdateSection(
     currentVersionName: String,
     onEvent: (AboutPreferencesUiEvent) -> Unit,
 ) {
-    val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
+    val updateChannels = remember { UpdateChannel.entries }
 
     PreferenceGroup {
         ClickablePreferenceItem(
@@ -156,11 +166,23 @@ private fun UpdateSection(
             onClick = {
                 when (val state = uiState.updateState) {
                     is UpdateState.UpdateAvailable -> {
-                        uriHandler.openUriOrShowToast(state.releaseUrl, context)
+                        onEvent(AboutPreferencesUiEvent.ShowDialog(AboutPreferenceDialog.Update(state.info)))
                     }
                     UpdateState.Checking -> {}
-                    else -> onEvent(AboutPreferencesUiEvent.CheckForUpdates(currentVersionName))
+                    UpdateState.Idle,
+                    UpdateState.UpToDate,
+                    UpdateState.Error,
+                    -> onEvent(AboutPreferencesUiEvent.CheckForUpdates(currentVersionName))
                 }
+            },
+        )
+        ClickablePreferenceItem(
+            modifier = Modifier.testTag("item_settings_about_update_channel"),
+            title = stringResource(R.string.update_channel),
+            description = uiState.updateChannel.name(),
+            icon = AppIcons.Transfer,
+            onClick = {
+                onEvent(AboutPreferencesUiEvent.ShowDialog(AboutPreferenceDialog.UpdateChannel))
             },
         )
         PreferenceSwitch(
@@ -171,6 +193,34 @@ private fun UpdateSection(
             onClick = { onEvent(AboutPreferencesUiEvent.ToggleCheckOnStartup) },
         )
     }
+
+    uiState.showDialog?.let { dialog ->
+        when (dialog) {
+            is AboutPreferenceDialog.Update -> AppUpdateDialog(
+                info = dialog.info,
+                onDismissRequest = { onEvent(AboutPreferencesUiEvent.ShowDialog(null)) },
+            )
+            AboutPreferenceDialog.UpdateChannel -> {
+                OptionsDialog(
+                    text = stringResource(R.string.update_channel),
+                    onDismissClick = { onEvent(AboutPreferencesUiEvent.ShowDialog(null)) },
+                ) {
+                    items(updateChannels) { channel ->
+                        RadioTextButton(
+                            modifier = Modifier.testTag(
+                                "option_settings_about_update_channel_${channel.name.lowercase()}",
+                            ),
+                            text = channel.name(),
+                            isSelected = channel == uiState.updateChannel,
+                            onClick = {
+                                onEvent(AboutPreferencesUiEvent.SetUpdateChannel(channel))
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -178,7 +228,7 @@ private fun updateStatusText(state: UpdateState): String = when (state) {
     UpdateState.Idle -> stringResource(R.string.update_status_idle)
     UpdateState.Checking -> stringResource(R.string.update_status_checking)
     UpdateState.UpToDate -> stringResource(R.string.update_status_up_to_date)
-    is UpdateState.UpdateAvailable -> stringResource(R.string.update_status_available, state.latestVersion)
+    is UpdateState.UpdateAvailable -> stringResource(R.string.update_status_available, state.info.latestVersion)
     UpdateState.Error -> stringResource(R.string.update_status_error)
 }
 
@@ -194,7 +244,7 @@ private fun AboutHero(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 24.dp),
+            .padding(bottom = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
@@ -249,6 +299,66 @@ private fun AboutHero(
                 onClick = { uriHandler.openUriOrShowToast(TELEGRAM_GROUP_URL, context) },
             )
         }
+        AboutSupport(
+            onClick = { uriHandler.openUriOrShowToast(AFDIAN_SUPPORT_URL, context) },
+        )
+    }
+}
+
+@Composable
+private fun AboutSupport(
+    onClick: () -> Unit,
+) {
+    val colors = MiuixTheme.colorScheme
+    val isDarkTheme = colors.surface.luminance() < 0.5f
+    val shape = RoundedCornerShape(20.dp)
+
+    Column(
+        modifier = Modifier.padding(top = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Row(
+            modifier = Modifier
+                .testTag("btn_settings_about_support")
+                .clip(shape)
+                .background(Color.White.copy(alpha = if (isDarkTheme) 0.08f else 0.57f))
+                .border(1.dp, Color.White.copy(alpha = if (isDarkTheme) 0.21f else 0.79f), shape)
+                .clickable(role = Role.Button, onClick = onClick)
+                .defaultMinSize(minHeight = 40.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MiuixIcon(
+                imageVector = AppIcons.Support,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = colors.primary,
+            )
+            MiuixText(
+                modifier = Modifier.weight(1f, fill = false),
+                text = stringResource(R.string.support_on_afdian),
+                color = colors.primary,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                textAlign = TextAlign.Center,
+            )
+            MiuixIcon(
+                imageVector = AppIcons.OpenInNew,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = colors.primary.copy(alpha = 0.75f),
+            )
+        }
+        MiuixText(
+            modifier = Modifier.padding(top = 8.dp),
+            text = stringResource(R.string.support_on_afdian_description),
+            color = colors.onSurfaceVariantSummary,
+            fontSize = 11.sp,
+            lineHeight = 16.sp,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -310,6 +420,7 @@ private fun rememberAndroidVersion(): String = remember {
 
 private const val PROJECT_REPOSITORY_URL = "https://github.com/Kindness-Kismet/only_player"
 private const val TELEGRAM_GROUP_URL = "https://t.me/MaterialDesign3"
+private const val AFDIAN_SUPPORT_URL = "https://afdian.com/a/KiritoXD"
 
 internal fun UriHandler.openUriOrShowToast(uri: String, context: Context) {
     try {

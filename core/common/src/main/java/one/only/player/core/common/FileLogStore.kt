@@ -45,13 +45,11 @@ class FileLogStore(
 
     fun read(): String = synchronized(lock) {
         if (!logFile.exists()) return@synchronized ""
-        trimToMaxSize()
         logFile.readText()
     }
 
     fun readTail(maxBytes: Long): String = synchronized(lock) {
         if (!logFile.exists()) return@synchronized ""
-        trimToMaxSize()
         readTailText(maxBytes.coerceAtLeast(0L))
     }
 

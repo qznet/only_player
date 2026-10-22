@@ -187,7 +187,6 @@ private fun PlayerPreferencesContent(
                 )
                 PreferenceSlider(
                     modifier = Modifier.testTag("item_settings_player_default_speed"),
-                    sliderModifier = Modifier.testTag("slider_settings_player_default_speed"),
                     title = stringResource(id = R.string.default_playback_speed),
                     description = uiState.preferences.defaultPlaybackSpeed.toString(),
                     icon = AppIcons.Speed,

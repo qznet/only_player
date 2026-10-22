@@ -1,0 +1,338 @@
+name: Android 开发版发布
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: android-dev-release
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  validate-branch:
+    name: 校验开发分支
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 要求在 dev 分支运行
+        shell: bash
+        run: test "${{ github.ref }}" = 'refs/heads/dev'
+
+  prepare:
+    name: 准备开发版信息
+    needs: validate-branch
+    runs-on: ubuntu-24.04
+    outputs:
+      application_id: ${{ steps.app.outputs.application_id }}
+      version: ${{ steps.ver.outputs.version }}
+      version_code: ${{ steps.ver.outputs.version_code }}
+      tag: ${{ steps.ver.outputs.tag }}
+      previous_tag: ${{ steps.ver.outputs.previous_tag }}
+      short_sha: ${{ steps.meta.outputs.short_sha }}
+      can_build: ${{ steps.base-tag.outputs.can_build }}
+      release_notes: ${{ steps.notes.outputs.release_notes }}
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: 读取应用信息
+        id: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          application_id="$(grep -m1 'applicationId = "' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')"
+          test -n "${application_id}"
+          echo "application_id=${application_id}" >> "$GITHUB_OUTPUT"
+
+      - name: 计算开发版版本
+        id: ver
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          props_version="$(grep -m1 'versionName = "' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')"
+          props_code="$(grep -m1 'versionCode = ' app/build.gradle.kts | sed -E 's/.*= ([0-9]+).*/\1/')"
+          test -n "${props_version}"
+          test -n "${props_code}"
+          if [[ ! "${props_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::versionName 必须是 x.y.z，当前为 ${props_version}"
+            exit 1
+          fi
+
+          tags="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq '.[] | select(.draft | not) | .tag_name')"
+          stable="${props_version}"
+          while IFS= read -r tag; do
+            if [[ "${tag}" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              candidate="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+              if [ "$(printf '%s\n%s\n' "${stable}" "${candidate}" | sort -V | tail -n 1)" = "${candidate}" ]; then
+                stable="${candidate}"
+              fi
+            fi
+          done <<< "${tags}"
+
+          IFS=. read -r major minor patch <<< "${stable}"
+          target="${major}.${minor}.$((patch + 1))"
+          beta=0
+          while IFS= read -r tag; do
+            if [[ "${tag}" =~ ^v?${target//./\.}-beta([0-9]+)$ ]] && [ "${BASH_REMATCH[1]}" -gt "${beta}" ]; then
+              beta="${BASH_REMATCH[1]}"
+            fi
+          done <<< "${tags}"
+
+          if [ "${beta}" -gt 0 ]; then
+            previous_tag="v${target}-beta${beta}"
+          else
+            stable_tag="v${stable}"
+            baseline_tag="dev-base/${stable_tag}"
+            if git ls-remote --exit-code --tags origin "refs/tags/${baseline_tag}" >/dev/null 2>&1; then
+              previous_tag="${baseline_tag}"
+            else
+              previous_tag="${stable_tag}"
+            fi
+          fi
+
+          version="${target}-beta$((beta + 1))"
+          version_code="$((props_code + 1))"
+          printf 'version=%s\nversion_code=%s\ntag=v%s\nprevious_tag=%s\n' \
+            "${version}" "${version_code}" "${version}" "${previous_tag}" | tee -a "$GITHUB_OUTPUT"
+
+      - name: 导出开发版元数据
+        id: meta
+        shell: bash
+        env:
+          APPLICATION_ID: ${{ steps.app.outputs.application_id }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          VERSION_CODE: ${{ steps.ver.outputs.version_code }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          short_sha="$(git rev-parse --short HEAD)"
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### 开发版发布信息"
+            echo
+            echo "- 应用 ID: \`${APPLICATION_ID}\`"
+            echo "- 通道: \`test\`"
+            echo "- 版本: \`${VERSION}\`"
+            echo "- 版本号: \`${VERSION_CODE}\`"
+            echo "- 标签: \`${TAG}\`"
+            echo "- 提交: \`${short_sha}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 验证开发版基线标签
+        id: base-tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous_tag="${{ steps.ver.outputs.previous_tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${previous_tag}" >/dev/null 2>&1; then
+            echo 'can_build=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo 'can_build=false' >> "$GITHUB_OUTPUT"
+          echo "::notice::开发版构建已跳过，因为基线标签 ${previous_tag} 不存在。"
+          echo "开发版构建已跳过，因为基线标签 \`${previous_tag}\` 不存在。" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 验证签名配置
+        if: steps.base-tag.outputs.can_build == 'true'
+        shell: bash
+        env:
+          KEYSTORE: ${{ secrets.KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for key in KEYSTORE KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!key}" ]; then
+              echo "::error::缺少必需 Secret: ${key}"
+              exit 1
+            fi
+          done
+          keystore_path="${RUNNER_TEMP}/release.jks"
+          printf '%s' "${KEYSTORE}" | base64 --decode > "${keystore_path}"
+          keytool -list -keystore "${keystore_path}" \
+            -storepass "${KEYSTORE_PASSWORD}" \
+            -alias "${KEY_ALIAS}" > /dev/null
+          echo "签名校验通过"
+
+      - name: 生成开发版更新说明
+        id: notes
+        if: steps.base-tag.outputs.can_build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous_tag="${{ steps.ver.outputs.previous_tag }}"
+          git fetch --force origin "refs/tags/${previous_tag}:refs/tags/${previous_tag}"
+          {
+            echo "## Changes"
+            echo
+            while IFS=$'\t' read -r commit short subject; do
+              printf -- '- %s [`%s`](%s/%s/commit/%s)\n' \
+                "${subject}" "${short}" "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${commit}"
+            done < <(git log --reverse --no-merges --format='%H%x09%h%x09%s' "${previous_tag}..${GITHUB_SHA}")
+          } > release_notes.md
+
+          echo "========== 开发版更新说明 =========="
+          cat release_notes.md
+
+          release_notes="$(base64 -w 0 release_notes.md)"
+          echo "release_notes=${release_notes}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: 签名构建 (${{ matrix.abi }})
+    needs: prepare
+    if: needs.prepare.outputs.can_build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: arm64-v8a
+          - abi: x86_64
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 写入开发版版本号
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ needs.prepare.outputs.version }}"
+          code="${{ needs.prepare.outputs.version_code }}"
+          sed -i -E "s/^([[:space:]]*versionName = )\"[^\"]+\"/\1\"${version}\"/" app/build.gradle.kts
+          sed -i -E "s/^([[:space:]]*versionCode = )[0-9]+/\1${code}/" app/build.gradle.kts
+          grep -E 'version(Name|Code)' app/build.gradle.kts
+
+      - name: 配置 JDK 26
+        uses: actions/setup-java@v5
+        with:
+          java-version: 26
+          distribution: temurin
+
+      - name: 配置 Gradle
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          validate-wrappers: true
+
+      - name: 配置 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: 准备签名文件
+        id: signing
+        shell: bash
+        env:
+          KEYSTORE: ${{ secrets.KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          keystore_path="${RUNNER_TEMP}/release.jks"
+          printf '%s' "${KEYSTORE}" | base64 --decode > "${keystore_path}"
+          keytool -list -keystore "${keystore_path}" \
+            -storepass "${KEYSTORE_PASSWORD}" \
+            -alias "${KEY_ALIAS}" > /dev/null
+          echo "keystore_path=${keystore_path}" >> "$GITHUB_OUTPUT"
+
+      - name: 构建已签名开发版
+        shell: bash
+        env:
+          KEYSTORE_PATH: ${{ steps.signing.outputs.keystore_path }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: python scripts/build.py build-apk --abi ${{ matrix.abi }} --clean
+
+      - name: 校验构建产物
+        shell: bash
+        run: |
+          set -euo pipefail
+          required_file="build/apk/Only-Player-${{ matrix.abi }}-${{ needs.prepare.outputs.version }}.apk"
+          if [ ! -f "${required_file}" ]; then
+            echo "::error::缺少构建产物：${required_file}"
+            exit 1
+          fi
+          echo "构建产物校验通过"
+
+      - name: 上传发布产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: Only-Player-dev-${{ needs.prepare.outputs.version }}-${{ matrix.abi }}
+          path: build/apk/
+          if-no-files-found: error
+
+  release:
+    name: 发布开发版
+    needs: [prepare, build]
+    if: ${{ needs.prepare.outputs.can_build == 'true' && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 下载所有构建产物
+        uses: actions/download-artifact@v8
+        with:
+          pattern: Only-Player-dev-${{ needs.prepare.outputs.version }}-*
+          path: release
+          merge-multiple: true
+
+      - name: 写入更新说明
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' '${{ needs.prepare.outputs.release_notes }}' | base64 --decode > release_notes.md
+          cat release_notes.md
+
+      - name: 上传开发版草稿
+        id: dev-release
+        uses: softprops/action-gh-release@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Only Player ${{ needs.prepare.outputs.tag }}
+          body_path: release_notes.md
+          files: release/*.apk
+          draft: true
+          prerelease: true
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          make_latest: false
+
+      - name: 发布开发版
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.dev-release.outputs.id }}
+        run: |
+          set -euo pipefail
+          gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false \
+            -F prerelease=true
+
+      - name: 丢弃未发布的开发版
+        if: ${{ failure() || cancelled() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          release_id="$(
+            gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" |
+              jq -r --arg tag "${TAG}" '[.[][] | select(.draft and .tag_name == $tag) | .id] | first // empty'
+          )"
+          if [ -z "${release_id}" ]; then
+            echo '没有需要丢弃的开发版草稿。'
+            exit 0
+          fi
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}"
+          echo "::notice::已丢弃未发布的开发版 ${TAG}。"

@@ -40,17 +40,19 @@ suspend fun Context.uriToSubtitleConfiguration(
     uri: Uri,
     subtitleEncoding: String = "",
     isSelected: Boolean = false,
+    displayName: String? = null,
+    language: String? = null,
 ): MediaItem.SubtitleConfiguration {
     val charset = if (subtitleEncoding.isNotEmpty() && Charset.isSupported(subtitleEncoding)) {
         Charset.forName(subtitleEncoding)
     } else {
         null
     }
-    val label = getFilenameFromUri(uri)
-    val mimeType = uri.getSubtitleMime(displayName = label)
+    val fileName = getFilenameFromUri(uri)
+    val mimeType = uri.getSubtitleMime(displayName = fileName)
     val utf8ConvertedUri = convertToUTF8(uri = uri, charset = charset)
-    val samiConvertedUri = convertSamiToSubrip(uri = utf8ConvertedUri, label = label)
-    val subtitleUri = normalizeAssFonts(uri = samiConvertedUri, label = label, mimeType = mimeType)
+    val samiConvertedUri = convertSamiToSubrip(uri = utf8ConvertedUri, label = fileName)
+    val subtitleUri = normalizeAssFonts(uri = samiConvertedUri, label = fileName, mimeType = mimeType)
     Logger.debug(
         "SubtitleConfig",
         "source=${uri.toSubtitleLogSummary()}, converted=${utf8ConvertedUri.toSubtitleLogSummary()}, subtitle=${subtitleUri.toSubtitleLogSummary()}, mime=$mimeType",
@@ -58,7 +60,8 @@ suspend fun Context.uriToSubtitleConfiguration(
     return MediaItem.SubtitleConfiguration.Builder(subtitleUri).apply {
         setId(uri.toString())
         setMimeType(mimeType)
-        setLabel(label)
+        setLabel(displayName ?: fileName)
+        setLanguage(language)
         if (isSelected) setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
     }.build()
 }

@@ -10,6 +10,7 @@ import one.only.player.core.database.dao.MediumDao
 import one.only.player.core.database.dao.PlaybackMarkDao
 import one.only.player.core.database.dao.PlaylistDao
 import one.only.player.core.database.dao.RemoteServerDao
+import one.only.player.core.database.dao.SubtitleCalibrationDao
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -35,4 +36,7 @@ object DaoModule {
 
     @Provides
     fun providePlaylistDao(db: MediaDatabase): PlaylistDao = db.playlistDao()
+
+    @Provides
+    fun provideSubtitleCalibrationDao(db: MediaDatabase): SubtitleCalibrationDao = db.subtitleCalibrationDao()
 }

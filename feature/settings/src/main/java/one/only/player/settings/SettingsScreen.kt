@@ -359,6 +359,9 @@ internal enum class SettingRow(
         subSettingResIds = listOf(
             R.string.subtitle_auto_load,
             R.string.preferred_subtitle_lang,
+            R.string.online_subtitle_search_settings,
+            R.string.online_subtitle_default_language,
+            R.string.online_subtitle_default_sources,
             R.string.remember_subtitle_track,
             R.string.subtitle_font,
             R.string.external_subtitle_font_import,
@@ -392,6 +395,7 @@ internal enum class SettingRow(
             R.string.android_version,
             R.string.app_logs,
             R.string.libraries,
+            R.string.update_channel,
             R.string.check_for_updates,
             R.string.check_updates_on_startup,
         ),

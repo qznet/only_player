@@ -1,7 +1,6 @@
 ---
 name: version-bump
-description: Bump the app version number and generate changelog. Trigger when user says "更新版本号", "提高版本号", "版本号提升", or "version bump".
-user_invocable: true
+description: 更新 Only Player 版本号、整理更新日志并创建版本提交。用户说「更新版本号」「提高版本号」「版本号提升」或「version bump」时使用。
 ---
 ## ⚠️ 两条最容易被忘记的规则
 
@@ -18,11 +17,13 @@ user_invocable: true
    - 用户指定了具体版本号时，使用用户指定的版本
 6. 通过 `git log` 查找上一次版本号提升的 commit，收集此后所有变更
 7. 归纳为面向用户的功能描述，忽略纯重构、CI 修复、GitHub Action、发布脚本、代码风格、调试指令等不影响普通用户体验的改动。同一功能被多次改动时合并为一条最终效果描述，不要按 commit 拆开写
-8. 识别本次版本涉及的 GitHub issue：
-   - 用 `gh` 读取相关 issue 原文
-   - 逐条核对本次改动是否**完整满足** issue 要求
+8. 识别本次版本涉及的 GitHub issue。**不得只 grep commit 信息里的 `#编号`**——开发时往往没写编号，只看 commit 会漏掉本次实际解决的 issue：
+   - 先用 `gh issue list --state open --limit 100 --json number,title` 列出全部未关闭 issue
+   - 拿第 7 步归纳出的每条用户可见改动，与每个 open issue 的标题逐一比对，挑出主题相关的候选
+   - 对每个候选用 `gh issue view <编号> --json title,body,state` 读原文，再核对本次改动是否**完整满足**其要求
    - 只有在 issue 要求被本次改动完整满足时，提交信息才允许追加 `close #xxxx`
-   - 若只是部分满足，或无法证明已完整满足，则**不要**追加 `close #xxxx`
+   - 若只是部分满足、实现方式与 issue 期望不一致，或无法证明已完整满足，则**不要**追加 `close #xxxx`
+   - 得出「本次无关联 issue」这个结论前，必须已经列过 open issue 并逐条比对过，不能因为 commit 里没有编号就直接下结论
 9. 修改 `app/build.gradle.kts` 的 `versionCode` 和 `versionName`
 10. 更新 `.github/CHANGELOG.md`：
     - 默认**整体重写**：清空旧内容，只保留上一次版本号提升 commit 之后到当前版本的变更
@@ -35,6 +36,7 @@ user_invocable: true
     - [ ] 每条日志是否是最终效果，而不是按 commit 罗列的过程？重复/互相修正的条目合并成一条
     - [ ] 中英文条目一一对应、数量一致
     - [ ] `close #xxxx` 都基于 `gh` 读到的 issue 原文核实过，不是凭印象加的
+    - [ ] 是否执行过 `gh issue list` 并把每条改动与 open issue 标题比对过？只 grep commit 编号不算做过第 8 步
     - 任一项不通过，回到对应步骤重做
 
 ## 更新日志格式
@@ -57,4 +59,9 @@ user_invocable: true
 - 禁止写入 GitHub Action、发布脚本、构建产物命名、CI 调整、调试指令变更等非用户可感知变化
 - 末尾无空行
 - issue 校验必须基于 `gh` 返回的原文，不允许凭印象追加 `close #xxxx`
+- issue 关联以功能主题匹配为准，不以 commit 是否写了编号为准
 - 版本号更新只处理本地改动与本地提交，push 阶段交给用户自己执行
+
+## 两端同步
+
+本技能同时保存在 `.codex/skills/version-bump/` 和 `.claude/skills/version-bump/`。修改任一端时，必须同步更新另一端，保持所有同名文件内容一致。

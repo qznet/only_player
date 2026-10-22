@@ -23,7 +23,6 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
@@ -52,11 +51,13 @@ import one.only.player.core.media.sync.MediaSynchronizer
 import one.only.player.core.model.ThemeConfig
 import one.only.player.core.ui.R as UiR
 import one.only.player.core.ui.components.AppDialog
+import one.only.player.core.ui.components.AppUpdateDialog
 import one.only.player.core.ui.components.LocalTopBarBlur
 import one.only.player.core.ui.composables.rememberRuntimePermissionState
 import one.only.player.core.ui.extensions.LocalRootBottomBarPadding
 import one.only.player.core.ui.theme.OnlyPlayerTheme
 import one.only.player.crash.StartupRecovery
+import one.only.player.crash.StartupStage
 import one.only.player.feature.player.PlayerActivity
 import one.only.player.feature.videopicker.navigation.navigateToHistory
 import one.only.player.feature.videopicker.navigation.navigateToPlaylists
@@ -132,7 +133,7 @@ class MainActivity : AppCompatActivity() {
 
     @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
-        StartupRecovery.begin(this)
+        StartupRecovery.begin(application, StartupStage.MAIN_ACTIVITY)
 
         val persistedStartupPreferences = StartupPreferencesCache.consume(context = this)
         val bootstrapTheme = resolveBootstrapTheme(
@@ -214,7 +215,7 @@ class MainActivity : AppCompatActivity() {
 
         window.decorView.doOnPreDraw {
             window.decorView.post {
-                StartupRecovery.markReady(this@MainActivity)
+                StartupRecovery.markReady()
             }
         }
     }
@@ -584,33 +585,8 @@ private fun StartupUpdateDialog(viewModel: MainViewModel) {
     val updateInfo by viewModel.updateInfo.collectAsStateWithLifecycle()
     val info = updateInfo ?: return
 
-    val uriHandler = LocalUriHandler.current
-
-    AppDialog(
-        onDismissRequest = { viewModel.dismissUpdate() },
-        title = stringResource(UiR.string.update_dialog_title),
-        content = { Text(text = stringResource(UiR.string.update_dialog_message, info.latestVersion)) },
-        confirmButton = {
-            TextButton(
-                modifier = Modifier.testTag("btn_update_confirm"),
-                text = stringResource(UiR.string.update_dialog_confirm),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    viewModel.dismissUpdate()
-                    try {
-                        uriHandler.openUri(info.releaseUrl)
-                    } catch (_: Exception) {
-                        // 忽略
-                    }
-                },
-            )
-        },
-        dismissButton = {
-            TextButton(
-                modifier = Modifier.testTag("btn_update_not_now"),
-                text = stringResource(UiR.string.not_now),
-                onClick = { viewModel.dismissUpdate() },
-            )
-        },
+    AppUpdateDialog(
+        info = info,
+        onDismissRequest = viewModel::dismissUpdate,
     )
 }

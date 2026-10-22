@@ -181,7 +181,8 @@ internal class PlaybackStartupAnalyticsListener(
         )
         Logger.info(
             tag,
-            "startup videoFormat bitrate=${format.bitrate} transfer=${format.colorInfo?.colorTransfer} " +
+            "startup videoFormat mime=${format.sampleMimeType} codecs=${format.codecs} bitrate=${format.bitrate} " +
+                "transfer=${format.colorInfo?.colorTransfer} " +
                 "standard=${format.colorInfo?.colorSpace} range=${format.colorInfo?.colorRange}",
         )
     }

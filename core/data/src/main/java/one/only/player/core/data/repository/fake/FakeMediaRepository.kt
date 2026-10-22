@@ -10,6 +10,7 @@ import one.only.player.core.data.repository.MediaMoveSummary
 import one.only.player.core.data.repository.MediaRepository
 import one.only.player.core.data.repository.isRemotePlaybackStateKey
 import one.only.player.core.model.Folder
+import one.only.player.core.model.SubtitleCalibration
 import one.only.player.core.model.Video
 
 class FakeMediaRepository : MediaRepository {
@@ -102,6 +103,19 @@ class FakeMediaRepository : MediaRepository {
     }
 
     override suspend fun updateSubtitleSpeed(uri: String, speed: Float) {
+    }
+
+    override suspend fun getOrCreateSubtitleCalibration(
+        uri: String,
+        subtitleKey: String,
+        trackIndex: Int,
+    ): SubtitleCalibration = SubtitleCalibration.Default
+
+    override suspend fun saveSubtitleCalibration(
+        uri: String,
+        subtitleKey: String,
+        calibration: SubtitleCalibration,
+    ) {
     }
 
     override suspend fun moveVideosToRecycleBin(uris: List<String>): List<String> {

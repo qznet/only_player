@@ -13,16 +13,19 @@ import one.only.player.feature.player.model.toVideoChapter
 
 enum class CustomCommands(val customAction: String) {
     ADD_SUBTITLE_TRACK(customAction = "ADD_SUBTITLE_TRACK"),
+    REMOVE_SUBTITLE_TRACK(customAction = "REMOVE_SUBTITLE_TRACK"),
     PRECISE_SEEK_TO(customAction = "PRECISE_SEEK_TO"),
     SET_SKIP_SILENCE_ENABLED(customAction = "SET_SKIP_SILENCE_ENABLED"),
     GET_SKIP_SILENCE_ENABLED(customAction = "GET_SKIP_SILENCE_ENABLED"),
     SET_IS_SCRUBBING_MODE_ENABLED(customAction = "SET_IS_SCRUBBING_MODE_ENABLED"),
+    SET_IS_SEEK_PREVIEW_ENABLED(customAction = "SET_IS_SEEK_PREVIEW_ENABLED"),
     SET_PERSISTENT_PLAYBACK_SPEED(customAction = "SET_PERSISTENT_PLAYBACK_SPEED"),
     SET_TRANSIENT_PLAYBACK_SPEED(customAction = "SET_TRANSIENT_PLAYBACK_SPEED"),
     GET_SUBTITLE_DELAY(customAction = "GET_SUBTITLE_DELAY"),
     SET_SUBTITLE_DELAY(customAction = "SET_SUBTITLE_DELAY"),
     GET_SUBTITLE_SPEED(customAction = "GET_SUBTITLE_SPEED"),
     SET_SUBTITLE_SPEED(customAction = "SET_SUBTITLE_SPEED"),
+    RESET_SUBTITLE_CALIBRATION(customAction = "RESET_SUBTITLE_CALIBRATION"),
     STOP_PLAYER_SESSION(customAction = "STOP_PLAYER_SESSION"),
     SHOW_CUSTOM_PIP(customAction = "SHOW_CUSTOM_PIP"),
     HIDE_CUSTOM_PIP(customAction = "HIDE_CUSTOM_PIP"),
@@ -44,27 +47,23 @@ enum class CustomCommands(val customAction: String) {
         fun asSessionCommands(): List<SessionCommand> = entries.map { it.sessionCommand }
 
         const val SUBTITLE_TRACK_URI_KEY = "subtitle_track_uri"
+        const val SUBTITLE_MEDIA_ID_KEY = "subtitle_media_id"
         const val SEEK_POSITION_MS_KEY = "seek_position_ms"
         const val SEEK_WAS_APPLIED_KEY = "seek_was_applied"
         const val SKIP_SILENCE_ENABLED_KEY = "skip_silence_enabled"
         const val IS_SCRUBBING_MODE_ENABLED_KEY = "is_scrubbing_mode_enabled"
+        const val IS_SEEK_PREVIEW_ENABLED_KEY = "is_seek_preview_enabled"
         const val PLAYBACK_SPEED_KEY = "playback_speed"
         const val SUBTITLE_DELAY_KEY = "subtitle_delay"
         const val SUBTITLE_SPEED_KEY = "subtitle_speed"
         const val LOUDNESS_GAIN_KEY = "loudness_gain"
         const val IS_LOUDNESS_GAIN_SUPPORTED_KEY = "is_loudness_gain_supported"
         const val SHOULD_APPLY_VIDEO_FILTERS_KEY = "should_apply_video_filters"
-        const val IS_VIDEO_BRIGHTNESS_FILTER_ENABLED_KEY = "is_video_brightness_filter_enabled"
         const val VIDEO_BRIGHTNESS_KEY = "video_brightness"
-        const val IS_VIDEO_CONTRAST_FILTER_ENABLED_KEY = "is_video_contrast_filter_enabled"
         const val VIDEO_CONTRAST_KEY = "video_contrast"
-        const val IS_VIDEO_SATURATION_FILTER_ENABLED_KEY = "is_video_saturation_filter_enabled"
         const val VIDEO_SATURATION_KEY = "video_saturation"
-        const val IS_VIDEO_HUE_FILTER_ENABLED_KEY = "is_video_hue_filter_enabled"
         const val VIDEO_HUE_KEY = "video_hue"
-        const val IS_VIDEO_GAMMA_FILTER_ENABLED_KEY = "is_video_gamma_filter_enabled"
         const val VIDEO_GAMMA_KEY = "video_gamma"
-        const val IS_VIDEO_SHARPENING_FILTER_ENABLED_KEY = "is_video_sharpening_filter_enabled"
         const val VIDEO_SHARPENING_KEY = "video_sharpening"
         const val IS_AMBIENCE_MODE_ENABLED_KEY = "is_ambience_mode_enabled"
         const val AMBIENCE_TARGET_ASPECT_RATIO_KEY = "ambience_target_aspect_ratio"
@@ -98,11 +97,15 @@ data class PlaybackStallMetrics(
     val totalDurationMs: Long,
 )
 
-fun MediaController.addSubtitleTrack(uri: Uri) {
+fun MediaController.addSubtitleTrack(
+    uri: Uri,
+    mediaId: String,
+): ListenableFuture<SessionResult> {
     val args = Bundle().apply {
         putString(CustomCommands.SUBTITLE_TRACK_URI_KEY, uri.toString())
+        putString(CustomCommands.SUBTITLE_MEDIA_ID_KEY, mediaId)
     }
-    sendCustomCommand(CustomCommands.ADD_SUBTITLE_TRACK.sessionCommand, args)
+    return sendCustomCommand(CustomCommands.ADD_SUBTITLE_TRACK.sessionCommand, args)
 }
 
 fun MediaController.preciseSeekTo(positionMs: Long): ListenableFuture<SessionResult> {
@@ -110,6 +113,17 @@ fun MediaController.preciseSeekTo(positionMs: Long): ListenableFuture<SessionRes
         putLong(CustomCommands.SEEK_POSITION_MS_KEY, positionMs)
     }
     return sendCustomCommand(CustomCommands.PRECISE_SEEK_TO.sessionCommand, args)
+}
+
+fun MediaController.removeSubtitleTrack(
+    subtitleId: String,
+    mediaId: String,
+): ListenableFuture<SessionResult> {
+    val args = Bundle().apply {
+        putString(CustomCommands.SUBTITLE_TRACK_URI_KEY, subtitleId)
+        putString(CustomCommands.SUBTITLE_MEDIA_ID_KEY, mediaId)
+    }
+    return sendCustomCommand(CustomCommands.REMOVE_SUBTITLE_TRACK.sessionCommand, args)
 }
 
 suspend fun MediaController.setSkipSilenceEnabled(isEnabled: Boolean) {
@@ -124,6 +138,13 @@ fun MediaController.setMediaControllerIsScrubbingModeEnabled(isEnabled: Boolean)
         putBoolean(CustomCommands.IS_SCRUBBING_MODE_ENABLED_KEY, isEnabled)
     }
     sendCustomCommand(CustomCommands.SET_IS_SCRUBBING_MODE_ENABLED.sessionCommand, args)
+}
+
+fun MediaController.setMediaControllerIsSeekPreviewEnabled(isEnabled: Boolean) {
+    val args = Bundle().apply {
+        putBoolean(CustomCommands.IS_SEEK_PREVIEW_ENABLED_KEY, isEnabled)
+    }
+    sendCustomCommand(CustomCommands.SET_IS_SEEK_PREVIEW_ENABLED.sessionCommand, args)
 }
 
 fun MediaController.setPersistentPlaybackSpeed(speed: Float) {
@@ -145,11 +166,11 @@ suspend fun MediaController.isSkipSilenceEnabled(): Boolean {
     return result.await().extras.getBoolean(CustomCommands.SKIP_SILENCE_ENABLED_KEY, false)
 }
 
-fun MediaController.setSubtitleDelayMilliseconds(delayMillis: Long) {
+suspend fun MediaController.setSubtitleDelayMilliseconds(delayMillis: Long) {
     val args = Bundle().apply {
         putLong(CustomCommands.SUBTITLE_DELAY_KEY, delayMillis)
     }
-    sendCustomCommand(CustomCommands.SET_SUBTITLE_DELAY.sessionCommand, args)
+    sendCustomCommand(CustomCommands.SET_SUBTITLE_DELAY.sessionCommand, args).await()
 }
 
 suspend fun MediaController.getSubtitleDelayMilliseconds(): Long {
@@ -157,16 +178,20 @@ suspend fun MediaController.getSubtitleDelayMilliseconds(): Long {
     return result.await().extras.getLong(CustomCommands.SUBTITLE_DELAY_KEY, 0L)
 }
 
-fun MediaController.setSubtitleSpeed(speed: Float) {
+suspend fun MediaController.setSubtitleSpeed(speed: Float) {
     val args = Bundle().apply {
         putFloat(CustomCommands.SUBTITLE_SPEED_KEY, speed)
     }
-    sendCustomCommand(CustomCommands.SET_SUBTITLE_SPEED.sessionCommand, args)
+    sendCustomCommand(CustomCommands.SET_SUBTITLE_SPEED.sessionCommand, args).await()
 }
 
 suspend fun MediaController.getSubtitleSpeed(): Float {
     val result = sendCustomCommand(CustomCommands.GET_SUBTITLE_SPEED.sessionCommand, Bundle.EMPTY)
     return result.await().extras.getFloat(CustomCommands.SUBTITLE_SPEED_KEY, 1f)
+}
+
+suspend fun MediaController.resetSubtitleCalibration() {
+    sendCustomCommand(CustomCommands.RESET_SUBTITLE_CALIBRATION.sessionCommand, Bundle.EMPTY).await()
 }
 
 fun MediaController.stopPlayerSession() {
@@ -192,17 +217,11 @@ fun MediaController.setLoudnessGain(gain: Int) {
 fun MediaController.previewVideoFilters(preferences: PlayerPreferences) {
     val args = Bundle().apply {
         putBoolean(CustomCommands.SHOULD_APPLY_VIDEO_FILTERS_KEY, preferences.shouldApplyVideoFilters)
-        putBoolean(CustomCommands.IS_VIDEO_BRIGHTNESS_FILTER_ENABLED_KEY, preferences.isVideoBrightnessFilterEnabled)
         putFloat(CustomCommands.VIDEO_BRIGHTNESS_KEY, preferences.videoBrightness)
-        putBoolean(CustomCommands.IS_VIDEO_CONTRAST_FILTER_ENABLED_KEY, preferences.isVideoContrastFilterEnabled)
         putFloat(CustomCommands.VIDEO_CONTRAST_KEY, preferences.videoContrast)
-        putBoolean(CustomCommands.IS_VIDEO_SATURATION_FILTER_ENABLED_KEY, preferences.isVideoSaturationFilterEnabled)
         putFloat(CustomCommands.VIDEO_SATURATION_KEY, preferences.videoSaturation)
-        putBoolean(CustomCommands.IS_VIDEO_HUE_FILTER_ENABLED_KEY, preferences.isVideoHueFilterEnabled)
         putFloat(CustomCommands.VIDEO_HUE_KEY, preferences.videoHue)
-        putBoolean(CustomCommands.IS_VIDEO_GAMMA_FILTER_ENABLED_KEY, preferences.isVideoGammaFilterEnabled)
         putFloat(CustomCommands.VIDEO_GAMMA_KEY, preferences.videoGamma)
-        putBoolean(CustomCommands.IS_VIDEO_SHARPENING_FILTER_ENABLED_KEY, preferences.isVideoSharpeningFilterEnabled)
         putFloat(CustomCommands.VIDEO_SHARPENING_KEY, preferences.videoSharpening)
     }
     sendCustomCommand(CustomCommands.PREVIEW_VIDEO_FILTERS.sessionCommand, args)

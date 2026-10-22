@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.Flow
 import one.only.player.core.data.models.RemotePlaybackInfo
 import one.only.player.core.data.models.VideoState
 import one.only.player.core.model.Folder
+import one.only.player.core.model.SubtitleCalibration
 import one.only.player.core.model.Video
 
 interface MediaRepository {
@@ -33,6 +34,19 @@ interface MediaRepository {
     suspend fun updateExternalSubs(uri: String, externalSubs: List<Uri>)
     suspend fun updateSubtitleDelay(uri: String, delay: Long)
     suspend fun updateSubtitleSpeed(uri: String, speed: Float)
+
+    suspend fun getOrCreateSubtitleCalibration(
+        uri: String,
+        subtitleKey: String,
+        trackIndex: Int,
+    ): SubtitleCalibration
+
+    suspend fun saveSubtitleCalibration(
+        uri: String,
+        subtitleKey: String,
+        calibration: SubtitleCalibration,
+    )
+
     suspend fun moveVideosToRecycleBin(uris: List<String>): List<String>
     suspend fun moveVideosToFolder(
         uris: List<String>,

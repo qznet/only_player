@@ -16,8 +16,10 @@ import one.only.player.core.data.repository.MediaRepository
 import one.only.player.core.model.RemoteFile
 import one.only.player.core.model.RemoteServer
 import one.only.player.core.model.ServerProtocol
+import one.only.player.core.ui.extensions.labelResource
 import one.only.player.feature.player.extensions.getSubtitleMime
 import one.only.player.feature.player.extensions.uriToSubtitleConfiguration
+import one.only.player.feature.player.subtitle.OnlineSubtitleRepository
 
 internal class ExternalSubtitleLoader(
     private val context: Context,
@@ -25,6 +27,7 @@ internal class ExternalSubtitleLoader(
     private val webDavClient: WebDavClient,
     private val smbClient: SmbClient,
     private val ftpClient: FtpClient,
+    private val onlineSubtitleRepository: OnlineSubtitleRepository,
 ) {
 
     fun isDirectSubtitleUri(uri: Uri): Boolean = uri.scheme in DIRECT_SUBTITLE_URI_SCHEMES
@@ -35,9 +38,17 @@ internal class ExternalSubtitleLoader(
     ): MediaItem.SubtitleConfiguration = if (isDirectSubtitleUri(uri)) {
         buildDirectSubtitleConfiguration(uri)
     } else {
+        val resolvedUri = onlineSubtitleRepository.resolveSubtitle(uri)
+        val metadata = onlineSubtitleRepository.getMetadata(resolvedUri)
+        val label = metadata?.let {
+            listOfNotNull(it.title, it.provider?.let { provider -> context.getString(provider.labelResource) })
+                .joinToString(" · ")
+        }
         context.uriToSubtitleConfiguration(
-            uri = uri,
+            uri = resolvedUri,
             subtitleEncoding = subtitleEncoding,
+            displayName = label,
+            language = metadata?.languageCode?.takeIf { it.isNotEmpty() },
         )
     }
 

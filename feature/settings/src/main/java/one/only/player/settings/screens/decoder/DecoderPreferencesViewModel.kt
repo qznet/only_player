@@ -14,9 +14,13 @@ import one.only.player.core.common.extensions.round
 import one.only.player.core.data.repository.PreferencesRepository
 import one.only.player.core.model.DecoderPriority
 import one.only.player.core.model.PlayerPreferences
+import one.only.player.core.model.VideoFilterPreset
+import one.only.player.core.model.toVideoFilterPreset
 import one.only.player.core.model.withVideoFilterAdjustment
+import one.only.player.core.model.withVideoFilterPresetApplied
+import one.only.player.core.model.withVideoFilterPresetDeleted
+import one.only.player.core.model.withVideoFilterPresetSaved
 import one.only.player.core.model.withVideoSharpening
-import one.only.player.core.model.withVideoSharpeningFilterEnabled
 
 @HiltViewModel
 class DecoderPreferencesViewModel @Inject constructor(
@@ -49,18 +53,15 @@ class DecoderPreferencesViewModel @Inject constructor(
             is DecoderPreferencesUiEvent.ShowDialog -> showDialog(event.value)
             is DecoderPreferencesUiEvent.UpdateDecoderPriority -> updateDecoderPriority(event.value)
             DecoderPreferencesUiEvent.ToggleVideoFilters -> toggleVideoFilters()
-            DecoderPreferencesUiEvent.ToggleVideoBrightnessFilter -> toggleVideoBrightnessFilter()
             is DecoderPreferencesUiEvent.UpdateVideoBrightness -> updateVideoBrightness(event.value)
-            DecoderPreferencesUiEvent.ToggleVideoContrastFilter -> toggleVideoContrastFilter()
             is DecoderPreferencesUiEvent.UpdateVideoContrast -> updateVideoContrast(event.value)
-            DecoderPreferencesUiEvent.ToggleVideoSaturationFilter -> toggleVideoSaturationFilter()
             is DecoderPreferencesUiEvent.UpdateVideoSaturation -> updateVideoSaturation(event.value)
-            DecoderPreferencesUiEvent.ToggleVideoHueFilter -> toggleVideoHueFilter()
             is DecoderPreferencesUiEvent.UpdateVideoHue -> updateVideoHue(event.value)
-            DecoderPreferencesUiEvent.ToggleVideoGammaFilter -> toggleVideoGammaFilter()
             is DecoderPreferencesUiEvent.UpdateVideoGamma -> updateVideoGamma(event.value)
-            DecoderPreferencesUiEvent.ToggleVideoSharpeningFilter -> toggleVideoSharpeningFilter()
             is DecoderPreferencesUiEvent.UpdateVideoSharpening -> updateVideoSharpening(event.value)
+            is DecoderPreferencesUiEvent.ApplyVideoFilterPreset -> applyVideoFilterPreset(event.preset)
+            is DecoderPreferencesUiEvent.SaveVideoFilterPreset -> saveVideoFilterPreset(event.name)
+            is DecoderPreferencesUiEvent.DeleteVideoFilterPreset -> deleteVideoFilterPreset(event.preset)
         }
     }
 
@@ -86,39 +87,30 @@ class DecoderPreferencesViewModel @Inject constructor(
         }
     }
 
-    private fun toggleVideoBrightnessFilter() {
-        updateVideoFilter("brightness enabled toggled") { preferences ->
-            preferences.copy(isVideoBrightnessFilterEnabled = !preferences.isVideoBrightnessFilterEnabled)
+    private fun applyVideoFilterPreset(preset: VideoFilterPreset) {
+        Logger.debug(TAG, "Apply video filter preset from settings: name=${preset.name}")
+        viewModelScope.launch {
+            preferencesRepository.updatePlayerPreferences {
+                it.withVideoFilterPresetApplied(preset)
+            }
         }
     }
 
-    private fun toggleVideoContrastFilter() {
-        updateVideoFilter("contrast enabled toggled") { preferences ->
-            preferences.copy(isVideoContrastFilterEnabled = !preferences.isVideoContrastFilterEnabled)
+    private fun saveVideoFilterPreset(name: String) {
+        Logger.debug(TAG, "Save video filter preset from settings: name=$name")
+        viewModelScope.launch {
+            preferencesRepository.updatePlayerPreferences {
+                it.withVideoFilterPresetSaved(it.toVideoFilterPreset(name, System.currentTimeMillis()))
+            }
         }
     }
 
-    private fun toggleVideoSaturationFilter() {
-        updateVideoFilter("saturation enabled toggled") { preferences ->
-            preferences.copy(isVideoSaturationFilterEnabled = !preferences.isVideoSaturationFilterEnabled)
-        }
-    }
-
-    private fun toggleVideoHueFilter() {
-        updateVideoFilter("hue enabled toggled") { preferences ->
-            preferences.copy(isVideoHueFilterEnabled = !preferences.isVideoHueFilterEnabled)
-        }
-    }
-
-    private fun toggleVideoGammaFilter() {
-        updateVideoFilter("gamma enabled toggled") { preferences ->
-            preferences.copy(isVideoGammaFilterEnabled = !preferences.isVideoGammaFilterEnabled)
-        }
-    }
-
-    private fun toggleVideoSharpeningFilter() {
-        updateVideoFilter("sharpening enabled toggled") { preferences ->
-            preferences.withVideoSharpeningFilterEnabled(!preferences.isVideoSharpeningFilterEnabled)
+    private fun deleteVideoFilterPreset(preset: VideoFilterPreset) {
+        Logger.debug(TAG, "Delete video filter preset from settings: name=${preset.name}")
+        viewModelScope.launch {
+            preferencesRepository.updatePlayerPreferences {
+                it.withVideoFilterPresetDeleted(preset)
+            }
         }
     }
 
@@ -173,22 +165,21 @@ data class DecoderPreferencesUiState(
 
 sealed interface DecoderPreferenceDialog {
     data object DecoderPriorityDialog : DecoderPreferenceDialog
+    data object VideoFilterPresets : DecoderPreferenceDialog
+    data object SaveVideoFilterPreset : DecoderPreferenceDialog
 }
 
 sealed interface DecoderPreferencesUiEvent {
     data class ShowDialog(val value: DecoderPreferenceDialog?) : DecoderPreferencesUiEvent
     data class UpdateDecoderPriority(val value: DecoderPriority) : DecoderPreferencesUiEvent
     data object ToggleVideoFilters : DecoderPreferencesUiEvent
-    data object ToggleVideoBrightnessFilter : DecoderPreferencesUiEvent
     data class UpdateVideoBrightness(val value: Float) : DecoderPreferencesUiEvent
-    data object ToggleVideoContrastFilter : DecoderPreferencesUiEvent
     data class UpdateVideoContrast(val value: Float) : DecoderPreferencesUiEvent
-    data object ToggleVideoSaturationFilter : DecoderPreferencesUiEvent
     data class UpdateVideoSaturation(val value: Float) : DecoderPreferencesUiEvent
-    data object ToggleVideoHueFilter : DecoderPreferencesUiEvent
     data class UpdateVideoHue(val value: Float) : DecoderPreferencesUiEvent
-    data object ToggleVideoGammaFilter : DecoderPreferencesUiEvent
     data class UpdateVideoGamma(val value: Float) : DecoderPreferencesUiEvent
-    data object ToggleVideoSharpeningFilter : DecoderPreferencesUiEvent
     data class UpdateVideoSharpening(val value: Float) : DecoderPreferencesUiEvent
+    data class ApplyVideoFilterPreset(val preset: VideoFilterPreset) : DecoderPreferencesUiEvent
+    data class SaveVideoFilterPreset(val name: String) : DecoderPreferencesUiEvent
+    data class DeleteVideoFilterPreset(val preset: VideoFilterPreset) : DecoderPreferencesUiEvent
 }

@@ -19,6 +19,7 @@ fun PlayerControl.labelRes(): Int = when (this) {
     PlayerControl.PLAYLIST -> R.string.now_playing
     PlayerControl.PLAYBACK_SPEED -> R.string.select_playback_speed
     PlayerControl.AUDIO -> R.string.select_audio_track
+    PlayerControl.AUDIO_EQUALIZER -> R.string.audio_equalizer
     PlayerControl.SUBTITLE -> R.string.select_subtitle_track
     PlayerControl.PREVIOUS -> R.string.player_controls_previous
     PlayerControl.PLAY_PAUSE -> R.string.player_controls_play_pause
@@ -50,6 +51,7 @@ fun PlayerControl.icon(): ImageVector = when (this) {
     PlayerControl.PLAYLIST -> AppIcons.PlaylistPlay
     PlayerControl.PLAYBACK_SPEED -> AppIcons.Speed
     PlayerControl.AUDIO -> AppIcons.Audio
+    PlayerControl.AUDIO_EQUALIZER -> AppIcons.Equalizer
     PlayerControl.SUBTITLE -> AppIcons.Subtitle
     PlayerControl.PREVIOUS -> AppIcons.SkipPrevious
     PlayerControl.PLAY_PAUSE -> AppIcons.Play

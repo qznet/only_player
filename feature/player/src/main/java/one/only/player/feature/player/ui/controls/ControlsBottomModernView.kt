@@ -26,10 +26,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SliderState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -205,13 +207,17 @@ private fun ModernSeekbar(
     onSeekFinished: () -> Unit,
 ) {
     val accentColor = MaterialTheme.colorScheme.primary
+    val valueRange = 0f..duration.coerceAtLeast(0f)
+    val sliderState = remember(valueRange) { SliderState(trackRange = valueRange) }
+
+    // 播放进度推进时同步外部位置；拖动中 onValueChange 已把最新值写回 position，同值赋值无跳变
+    sliderState.value = position.coerceIn(valueRange)
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Slider(
+            state = sliderState,
             modifier = modifier
                 .fillMaxWidth()
                 .testTag("seekbar_modern"),
-            value = position.coerceIn(0f, duration.coerceAtLeast(0f)),
-            valueRange = 0f..duration.coerceAtLeast(0f),
             onValueChange = onSeek,
             onValueChangeFinished = onSeekFinished,
             thumb = {
@@ -224,9 +230,9 @@ private fun ModernSeekbar(
                         .background(accentColor),
                 )
             },
-            track = { sliderState ->
+            track = { state ->
                 SliderDefaults.Track(
-                    sliderState = sliderState,
+                    sliderState = state,
                     modifier = Modifier.height(4.dp),
                     colors = SliderDefaults.colors(
                         activeTrackColor = accentColor,

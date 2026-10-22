@@ -4,14 +4,14 @@ import android.net.Uri
 import androidx.core.net.toUri
 import java.io.File
 import javax.inject.Inject
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
-import one.only.player.core.common.di.ApplicationScope
+import one.only.player.core.common.Logger
 import one.only.player.core.common.extensions.canonicalPathOrSelf
 import one.only.player.core.common.extensions.toCanonicalFilePathOrNull
 import one.only.player.core.data.mappers.toFolder
+import one.only.player.core.data.mappers.toSubtitleCalibration
 import one.only.player.core.data.mappers.toVideo
 import one.only.player.core.data.mappers.toVideoState
 import one.only.player.core.data.models.RemotePlaybackInfo
@@ -20,7 +20,9 @@ import one.only.player.core.database.converter.UriListConverter
 import one.only.player.core.database.dao.DirectoryDao
 import one.only.player.core.database.dao.MediumDao
 import one.only.player.core.database.dao.MediumStateDao
+import one.only.player.core.database.dao.SubtitleCalibrationDao
 import one.only.player.core.database.entities.MediumStateEntity
+import one.only.player.core.database.entities.SubtitleCalibrationEntity
 import one.only.player.core.database.relations.DirectoryWithMedia
 import one.only.player.core.database.relations.MediumWithInfo
 import one.only.player.core.media.services.MediaMoveResult
@@ -28,18 +30,21 @@ import one.only.player.core.media.services.MediaService
 import one.only.player.core.media.sync.MediaSynchronizer
 import one.only.player.core.model.Folder
 import one.only.player.core.model.StoragePath
+import one.only.player.core.model.SubtitleCalibration
 import one.only.player.core.model.Video
+import one.only.player.core.model.moveDirectoryLayouts
 
 class LocalMediaRepository @Inject constructor(
+    private val preferencesRepository: PreferencesRepository,
     private val mediumDao: MediumDao,
     private val mediumStateDao: MediumStateDao,
+    private val subtitleCalibrationDao: SubtitleCalibrationDao,
     private val directoryDao: DirectoryDao,
     private val mediaService: MediaService,
     private val mediaSynchronizer: MediaSynchronizer,
     private val favoriteRepository: FavoriteRepository,
     private val playlistRepository: PlaylistRepository,
     private val playbackMarkRepository: PlaybackMarkRepository,
-    @ApplicationScope private val applicationScope: CoroutineScope,
 ) : MediaRepository {
 
     override fun getVideosFlow(): Flow<List<Video>> = mediumDao.getAllWithInfo().map { media ->
@@ -240,13 +245,64 @@ class LocalMediaRepository @Inject constructor(
         )
     }
 
+    override suspend fun getOrCreateSubtitleCalibration(
+        uri: String,
+        subtitleKey: String,
+        trackIndex: Int,
+    ): SubtitleCalibration = try {
+        subtitleCalibrationDao.getOrCreate(
+            mediaUri = resolveCanonicalMediaUri(uri),
+            subtitleKey = subtitleKey,
+            trackIndex = trackIndex,
+        ).toSubtitleCalibration()
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (exception: Exception) {
+        Logger.error(TAG, "字幕校准读取失败", exception)
+        throw exception
+    }
+
+    override suspend fun saveSubtitleCalibration(
+        uri: String,
+        subtitleKey: String,
+        calibration: SubtitleCalibration,
+    ) {
+        try {
+            subtitleCalibrationDao.save(
+                SubtitleCalibrationEntity(
+                    mediaUri = resolveCanonicalMediaUri(uri),
+                    subtitleKey = subtitleKey,
+                    delayMilliseconds = calibration.delayMilliseconds,
+                    speed = calibration.speed,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            Logger.error(TAG, "字幕校准保存失败", exception)
+            throw exception
+        }
+    }
+
+    // media_state 主键变更会级联删除校准行，调用方需在删除前取出，写入新父行后重建
+    private suspend fun restoreSubtitleCalibrations(
+        calibrations: List<SubtitleCalibrationEntity>,
+        newMediaUri: String,
+    ) {
+        if (calibrations.isEmpty()) return
+        subtitleCalibrationDao.upsertAll(calibrations.map { it.copy(mediaUri = newMediaUri) })
+    }
+
     override suspend fun moveVideosToRecycleBin(uris: List<String>): List<String> {
         if (uris.isEmpty()) return emptyList()
 
         val movedUris = mutableListOf<String>()
+        val movedPaths = mutableListOf<StoragePath>()
         uris.distinct().forEach { uriString ->
             val medium = mediumDao.get(uriString) ?: return@forEach
             val currentState = mediumStateDao.get(uriString) ?: MediumStateEntity(uriString = uriString)
+            val calibrations = subtitleCalibrationDao.getByMediaUri(uriString)
             val moved = mediaService.moveMediaToRecycleBin(uriString.toUri()) ?: return@forEach
             val movedUriString = moved.uri.toString()
 
@@ -273,6 +329,7 @@ class LocalMediaRepository @Inject constructor(
                     originalFileName = currentState.originalFileName ?: medium.name,
                 ),
             )
+            restoreSubtitleCalibrations(calibrations, movedUriString)
             playbackMarkRepository.updateMediaUri(
                 oldMediaUri = uriString,
                 newMediaUri = movedUriString,
@@ -290,8 +347,11 @@ class LocalMediaRepository @Inject constructor(
                 newLocalPath = moved.path,
                 newTitle = moved.fileName,
             )
-            refreshMediaPathAsync(moved.path)
+            movedPaths += StoragePath.of(moved.path.canonicalPathOrSelf())
             movedUris += movedUriString
+        }
+        if (movedPaths.isNotEmpty()) {
+            mediaSynchronizer.refreshMovedPaths(movedPaths)
         }
         return movedUris
     }
@@ -308,14 +368,9 @@ class LocalMediaRepository @Inject constructor(
 
         var movedCount = 0
         var failedCount = 0
-        distinctUris.forEach { uriString ->
-            if (shouldCancel()) {
-                return MediaMoveSummary(
-                    movedCount = movedCount,
-                    failedCount = failedCount,
-                    canceledCount = distinctUris.size - movedCount - failedCount,
-                )
-            }
+        val movedPaths = mutableListOf<StoragePath>()
+        for (uriString in distinctUris) {
+            if (shouldCancel()) break
 
             val medium = mediumDao.get(uriString)
             val currentName = medium?.name ?: uriString
@@ -345,13 +400,7 @@ class LocalMediaRepository @Inject constructor(
                 },
             )
             if (moved == null) {
-                if (shouldCancel()) {
-                    return MediaMoveSummary(
-                        movedCount = movedCount,
-                        failedCount = failedCount,
-                        canceledCount = distinctUris.size - movedCount - failedCount,
-                    )
-                }
+                if (shouldCancel()) break
                 failedCount++
                 onProgress(
                     MediaMoveProgress(
@@ -362,12 +411,10 @@ class LocalMediaRepository @Inject constructor(
                         totalBytes = totalBytes,
                     ),
                 )
-                return@forEach
+                continue
             }
             updateMovedMedium(uriString, moved)
-            moved.originalPath?.let { originalPath -> mediaSynchronizer.refresh(originalPath) }
-            mediaSynchronizer.registerManualVideoPath(moved.path)
-            mediaSynchronizer.refresh(moved.path)
+            movedPaths += StoragePath.of(moved.path.canonicalPathOrSelf())
             movedCount++
             onProgress(
                 MediaMoveProgress(
@@ -379,9 +426,11 @@ class LocalMediaRepository @Inject constructor(
                 ),
             )
         }
+        mediaSynchronizer.refreshMovedPaths(movedPaths)
         return MediaMoveSummary(
             movedCount = movedCount,
             failedCount = failedCount,
+            canceledCount = distinctUris.size - movedCount - failedCount,
         )
     }
 
@@ -399,20 +448,18 @@ class LocalMediaRepository @Inject constructor(
         var partiallyMovedCount = 0
         var failedCount = 0
         var processedCount = 0
-        distinctFolderPaths.forEach { folderPath ->
-            if (shouldCancel()) {
-                return MediaMoveSummary(
-                    movedCount = movedCount,
-                    partiallyMovedCount = partiallyMovedCount,
-                    failedCount = failedCount,
-                    canceledCount = distinctFolderPaths.size - processedCount,
-                )
-            }
+        val movedPaths = mutableListOf<StoragePath>()
+        for (folderPath in distinctFolderPaths) {
+            if (shouldCancel()) break
 
             val folder = File(folderPath)
-            val totalBytes = folder.walkTopDown()
-                .filter(File::isFile)
-                .sumOf(File::length)
+            val files = folder.walkTopDown().filter(File::isFile).toList()
+            val totalBytes = files.sumOf(File::length)
+            val uriStringByOriginalPath = files
+                .map(File::getPath)
+                .chunked(SQLITE_VARIABLE_LIMIT)
+                .flatMap { paths -> mediumDao.getAllByPaths(paths) }
+                .associate { medium -> StoragePath.of(medium.path) to medium.uriString }
             onProgress(
                 MediaMoveProgress(
                     completedCount = processedCount,
@@ -424,20 +471,20 @@ class LocalMediaRepository @Inject constructor(
             val result = mediaService.moveFolderToFolder(folderPath, targetFolderPath)
 
             val movedFolderPath = File(targetFolderPath, folder.name).path
-            val uriStringByOriginalPath = result.movedMedia
-                .mapNotNull(MediaMoveResult::originalPath)
-                .chunked(SQLITE_VARIABLE_LIMIT)
-                .flatMap { paths -> mediumDao.getAllByPaths(paths) }
-                .associate { medium -> StoragePath.of(medium.path) to medium.uriString }
-
             result.movedMedia.forEach { moved ->
+                movedPaths += StoragePath.of(moved.path.canonicalPathOrSelf())
                 val originalPath = moved.originalPath ?: return@forEach
                 val uriString = uriStringByOriginalPath[StoragePath.of(originalPath)] ?: return@forEach
                 updateMovedMedium(uriString, moved)
-                mediaSynchronizer.registerManualVideoPath(moved.path)
             }
             when {
                 result.isComplete -> {
+                    preferencesRepository.updateApplicationPreferences { preferences ->
+                        preferences.moveDirectoryLayouts(
+                            from = StoragePath.of(folderPath.canonicalPathOrSelf()),
+                            to = StoragePath.of(movedFolderPath.canonicalPathOrSelf()),
+                        )
+                    }
                     favoriteRepository.updateLocalFolderPath(
                         oldPath = folderPath,
                         newPath = movedFolderPath,
@@ -451,9 +498,6 @@ class LocalMediaRepository @Inject constructor(
                 result.movedMedia.isNotEmpty() -> partiallyMovedCount++
                 else -> failedCount++
             }
-            if (result.isComplete || result.movedMedia.isNotEmpty()) {
-                mediaSynchronizer.refresh()
-            }
             processedCount++
             onProgress(
                 MediaMoveProgress(
@@ -465,10 +509,12 @@ class LocalMediaRepository @Inject constructor(
                 ),
             )
         }
+        mediaSynchronizer.refreshMovedPaths(movedPaths)
         return MediaMoveSummary(
             movedCount = movedCount,
             partiallyMovedCount = partiallyMovedCount,
             failedCount = failedCount,
+            canceledCount = distinctFolderPaths.size - processedCount,
         )
     }
 
@@ -476,11 +522,13 @@ class LocalMediaRepository @Inject constructor(
         if (uris.isEmpty()) return emptyList()
 
         val restoredUris = mutableListOf<String>()
+        val restoredPaths = mutableListOf<StoragePath>()
         uris.distinct().forEach { uriString ->
             val currentState = mediumStateDao.get(uriString) ?: return@forEach
             val medium = mediumDao.get(uriString) ?: return@forEach
             val originalPath = currentState.originalPath ?: return@forEach
             val originalFileName = currentState.originalFileName ?: return@forEach
+            val calibrations = subtitleCalibrationDao.getByMediaUri(uriString)
             val restored = mediaService.restoreMediaFromRecycleBin(
                 uri = uriString.toUri(),
                 originalPath = originalPath,
@@ -511,6 +559,7 @@ class LocalMediaRepository @Inject constructor(
                     originalFileName = null,
                 ),
             )
+            restoreSubtitleCalibrations(calibrations, restoredUriString)
             playbackMarkRepository.updateMediaUri(
                 oldMediaUri = uriString,
                 newMediaUri = restoredUriString,
@@ -528,8 +577,11 @@ class LocalMediaRepository @Inject constructor(
                 newLocalPath = restored.path,
                 newTitle = restored.fileName,
             )
-            refreshMediaPathAsync(restored.path)
+            restoredPaths += StoragePath.of(restored.path.canonicalPathOrSelf())
             restoredUris += restoredUriString
+        }
+        if (restoredPaths.isNotEmpty()) {
+            mediaSynchronizer.refreshMovedPaths(restoredPaths)
         }
         return restoredUris
     }
@@ -540,6 +592,7 @@ class LocalMediaRepository @Inject constructor(
     ) {
         val medium = mediumDao.get(uriString) ?: return
         val currentState = mediumStateDao.get(uriString)
+        val calibrations = subtitleCalibrationDao.getByMediaUri(uriString)
         val movedUriString = moved.uri.toString()
 
         if (movedUriString != uriString) {
@@ -558,6 +611,7 @@ class LocalMediaRepository @Inject constructor(
 
         currentState?.let { state ->
             mediumStateDao.upsert(state.copy(uriString = movedUriString))
+            restoreSubtitleCalibrations(calibrations, movedUriString)
         }
         playbackMarkRepository.updateMediaUri(
             oldMediaUri = uriString,
@@ -603,15 +657,11 @@ class LocalMediaRepository @Inject constructor(
         return File(rawPath).path
     }
 
-    private fun refreshMediaPathAsync(path: String) {
-        applicationScope.launch {
-            mediaSynchronizer.refresh(path)
-        }
-    }
-
     private fun MediumWithInfo.isMarkedInRecycleBin(): Boolean = mediumStateEntity?.isInRecycleBin == true
 
     companion object {
+        private const val TAG = "LocalMediaRepository"
+
         // 与 Media3 C.TIME_UNSET 数值一致；负位置在 Video.playedPercentage 中按已播完处理。
         private const val PLAYED_PLAYBACK_POSITION = Long.MIN_VALUE + 1
 

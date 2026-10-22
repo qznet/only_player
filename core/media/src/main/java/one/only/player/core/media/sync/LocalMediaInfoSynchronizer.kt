@@ -167,7 +167,6 @@ class LocalMediaInfoSynchronizer @Inject constructor(
         private val VIDEO_CACHE_DIR_NAMES = setOf(
             "mkv-cues",
             "media_snapshots",
-            "online_subtitles",
             "subtitles",
         )
     }

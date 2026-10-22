@@ -44,6 +44,7 @@ class GesturePreferencesViewModel @Inject constructor(
             GesturePreferencesUiEvent.ToggleEnableBrightnessSwipeGesture -> toggleEnableBrightnessSwipeGesture()
             GesturePreferencesUiEvent.ToggleEnableVolumeSwipeGesture -> toggleEnableVolumeSwipeGesture()
             GesturePreferencesUiEvent.ToggleUseSeekControls -> toggleUseSeekControls()
+            GesturePreferencesUiEvent.ToggleSeekPreviewFrame -> toggleSeekPreviewFrame()
             GesturePreferencesUiEvent.ToggleUseZoomControls -> toggleUseZoomControls()
             GesturePreferencesUiEvent.ToggleEnablePanGesture -> toggleEnablePanGesture()
             is GesturePreferencesUiEvent.UpdateLongPressControlsSpeed -> updateLongPressControlsSpeed(event.value)
@@ -129,6 +130,14 @@ class GesturePreferencesViewModel @Inject constructor(
         }
     }
 
+    private fun toggleSeekPreviewFrame() {
+        viewModelScope.launch {
+            preferencesRepository.updatePlayerPreferences {
+                it.copy(isSeekPreviewFrameEnabled = !it.isSeekPreviewFrameEnabled)
+            }
+        }
+    }
+
     private fun toggleUseZoomControls() {
         viewModelScope.launch {
             preferencesRepository.updatePlayerPreferences {
@@ -204,6 +213,7 @@ sealed interface GesturePreferencesUiEvent {
     data object ToggleEnableBrightnessSwipeGesture : GesturePreferencesUiEvent
     data object ToggleEnableVolumeSwipeGesture : GesturePreferencesUiEvent
     data object ToggleUseSeekControls : GesturePreferencesUiEvent
+    data object ToggleSeekPreviewFrame : GesturePreferencesUiEvent
     data object ToggleUseZoomControls : GesturePreferencesUiEvent
     data object ToggleEnablePanGesture : GesturePreferencesUiEvent
     data class UpdateLongPressControlsSpeed(val value: Float) : GesturePreferencesUiEvent

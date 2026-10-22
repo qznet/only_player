@@ -3,7 +3,6 @@ package one.only.player.crash
 import android.content.Context
 import android.content.Intent
 import android.os.Process
-import java.io.File
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
@@ -11,13 +10,19 @@ import one.only.player.core.common.Logger
 import one.only.player.core.ui.R
 
 internal const val CRASH_EXCEPTION_EXTRA = "exception"
+internal const val CRASH_REPORT_SAVED_EXTRA = "report_saved"
 internal const val CRASH_PROCESS_SUFFIX = ":crash"
+
+internal enum class StartupStage {
+    APPLICATION,
+    MAIN_ACTIVITY,
+}
 
 internal object StartupRecovery {
 
     private const val TAG = "StartupRecovery"
-    private const val MARKER_FILE_NAME = "startup_in_progress"
     private const val STARTUP_TIMEOUT_MILLIS = 15_000L
+    private const val MAX_EXCEPTION_EXTRA_LENGTH = 8 * 1024
 
     private val lock = Any()
     private val watchdogExecutor = ScheduledThreadPoolExecutor(1) { runnable ->
@@ -28,50 +33,29 @@ internal object StartupRecovery {
         removeOnCancelPolicy = true
     }
 
-    private var activeStartedAt: Long? = null
+    private var activeStartup: Startup? = null
     private var watchdog: ScheduledFuture<*>? = null
     private var isCrashPageRequested = false
 
-    // 文件标记不依赖进程内缓存，可由独立崩溃进程安全清理。
-    fun begin(context: Context) {
-        val appContext = context.applicationContext
+    fun begin(
+        context: Context,
+        stage: StartupStage,
+    ) {
         synchronized(lock) {
-            if (activeStartedAt != null) return
-
-            val markerFile = markerFile(appContext)
-            if (markerFile.exists()) {
-                Logger.info(TAG, "Discarding unfinished startup marker")
-            }
-
-            val startedAt = System.currentTimeMillis()
-            persistMarker(markerFile, startedAt)
-
-            activeStartedAt = startedAt
-            watchdog?.cancel(false)
+            if (activeStartup != null || isCrashPageRequested) return
+            val startup = Startup(stage)
+            activeStartup = startup
             watchdog = watchdogExecutor.schedule(
-                { onStartupTimeout(appContext, startedAt) },
+                { onStartupTimeout(context, startup) },
                 STARTUP_TIMEOUT_MILLIS,
                 TimeUnit.MILLISECONDS,
             )
         }
     }
 
-    fun markReady(context: Context) {
+    fun markReady() {
         synchronized(lock) {
-            if (activeStartedAt == null) return
-            clearMarker(context.applicationContext)
-            activeStartedAt = null
-            watchdog?.cancel(false)
-            watchdog = null
-        }
-    }
-
-    fun markFailed(context: Context) {
-        synchronized(lock) {
-            clearMarker(context.applicationContext)
-            activeStartedAt = null
-            watchdog?.cancel(false)
-            watchdog = null
+            cancelWatchdog()
         }
     }
 
@@ -80,72 +64,66 @@ internal object StartupRecovery {
         exception: String,
     ) {
         val shouldLaunch = synchronized(lock) {
-            if (isCrashPageRequested) {
-                false
-            } else {
-                isCrashPageRequested = true
-                clearMarker(context.applicationContext)
-                activeStartedAt = null
-                watchdog?.cancel(false)
-                watchdog = null
-                true
-            }
+            claimCrashPage()
         }
         if (!shouldLaunch) return
+        openCrashPage(context, exception, shouldIncludeThreads = false)
+    }
 
+    private fun openCrashPage(
+        context: Context,
+        exception: String,
+        shouldIncludeThreads: Boolean,
+    ) {
+        // 报告独立保存，避免等待可能被卡死线程占用的日志锁。
+        val isReportSaved = CrashReportStore(context).writeSnapshot(exception, shouldIncludeThreads)
         val intent = Intent(context, CrashActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            putExtra(CRASH_EXCEPTION_EXTRA, Logger.sanitize(exception))
+            putExtra(CRASH_EXCEPTION_EXTRA, Logger.sanitize(exception).take(MAX_EXCEPTION_EXTRA_LENGTH))
+            putExtra(CRASH_REPORT_SAVED_EXTRA, isReportSaved)
         }
         runCatching {
-            context.applicationContext.startActivity(intent)
+            context.startActivity(intent)
         }.onFailure { launchException ->
-            Logger.error(TAG, "Failed to launch crash page", launchException)
+            Logger.error(TAG, "Failed to launch crash page", launchException, shouldWriteToFile = false)
         }
     }
 
     private fun onStartupTimeout(
         context: Context,
-        startedAt: Long,
+        startup: Startup,
     ) {
         val shouldHandleTimeout = synchronized(lock) {
-            if (activeStartedAt != startedAt) {
-                false
-            } else {
-                Logger.error(TAG, "Startup timed out after ${STARTUP_TIMEOUT_MILLIS}ms")
-                activeStartedAt = null
-                watchdog = null
-                true
-            }
+            activeStartup === startup && claimCrashPage()
         }
 
         if (!shouldHandleTimeout) return
-        launchCrashPage(
-            context = context,
-            exception = context.getString(
-                R.string.crash_screen_startup_timeout,
-                STARTUP_TIMEOUT_MILLIS / 1_000L,
-            ),
-        )
-        Process.killProcess(Process.myPid())
-    }
-
-    private fun markerFile(context: Context) = File(context.noBackupFilesDir, MARKER_FILE_NAME)
-
-    private fun persistMarker(
-        markerFile: File,
-        startedAt: Long,
-    ) {
-        runCatching {
-            markerFile.writeText(startedAt.toString())
-        }.onFailure { exception ->
-            Logger.error(TAG, "Failed to persist startup marker", exception)
+        try {
+            openCrashPage(
+                context = context,
+                exception = context.getString(
+                    R.string.crash_screen_startup_timeout,
+                    STARTUP_TIMEOUT_MILLIS / 1_000L,
+                ) + "\nStartup stage: ${startup.stage}",
+                shouldIncludeThreads = true,
+            )
+        } finally {
+            Process.killProcess(Process.myPid())
         }
     }
 
-    private fun clearMarker(context: Context) {
-        val markerFile = markerFile(context)
-        if (!markerFile.exists()) return
-        if (!markerFile.delete()) Logger.error(TAG, "Failed to clear startup marker")
+    private fun claimCrashPage(): Boolean {
+        if (isCrashPageRequested) return false
+        isCrashPageRequested = true
+        cancelWatchdog()
+        return true
     }
+
+    private fun cancelWatchdog() {
+        activeStartup = null
+        watchdog?.cancel(false)
+        watchdog = null
+    }
+
+    private class Startup(val stage: StartupStage)
 }

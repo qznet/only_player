@@ -5,7 +5,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,10 +15,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,46 +43,21 @@ import one.only.player.core.ui.R
 import one.only.player.core.ui.components.AppDialog
 import one.only.player.core.ui.components.ListSectionTitle
 import one.only.player.core.ui.components.SubtitleStylePanel
+import one.only.player.core.ui.designsystem.AppIcons
+import one.only.player.feature.player.extensions.externalSubtitleId
 import one.only.player.feature.player.extensions.getName
-import one.only.player.feature.player.state.SubtitleOptionsEvent
 import one.only.player.feature.player.state.rememberSubtitleOptionsState
 import one.only.player.feature.player.state.rememberTracksState
 import one.only.player.feature.player.ui.panel.PanelActionButton
 import one.only.player.feature.player.ui.panel.PanelOptionList
 import one.only.player.feature.player.ui.panel.PanelOptionRow
 import top.yukonga.miuix.kmp.basic.ButtonDefaults as MiuixButtonDefaults
+import top.yukonga.miuix.kmp.basic.Icon as MiuixIcon
+import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
+import top.yukonga.miuix.kmp.basic.Text as MiuixText
 import top.yukonga.miuix.kmp.basic.TextButton as MiuixTextButton
-
-@OptIn(UnstableApi::class)
-@Composable
-fun BoxScope.SubtitleSelectorView(
-    modifier: Modifier = Modifier,
-    shouldShow: Boolean,
-    player: Player,
-    onSelectSubtitleClick: () -> Unit,
-    onAddOnlineSubtitleClick: (String) -> Unit,
-    preferences: PlayerPreferences,
-    onPreferencesChange: (PlayerPreferences) -> Unit,
-    onEvent: (SubtitleOptionsEvent) -> Unit = {},
-    onDismiss: () -> Unit,
-) {
-    OverlayView(
-        modifier = modifier,
-        shouldShow = shouldShow,
-        title = stringResource(R.string.select_subtitle_track),
-        testTag = "panel_subtitle_selector",
-    ) {
-        SubtitleSelectorContent(
-            player = player,
-            onSelectSubtitleClick = onSelectSubtitleClick,
-            onAddOnlineSubtitleClick = onAddOnlineSubtitleClick,
-            preferences = preferences,
-            onPreferencesChange = onPreferencesChange,
-            onEvent = onEvent,
-            onDismiss = onDismiss,
-        )
-    }
-}
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -95,13 +65,14 @@ fun SubtitleSelectorContent(
     player: Player,
     onSelectSubtitleClick: () -> Unit,
     onAddOnlineSubtitleClick: (String) -> Unit,
+    onRemoveSubtitleClick: (String) -> Unit,
+    onShowSubtitleSearch: () -> Unit,
     preferences: PlayerPreferences,
     onPreferencesChange: (PlayerPreferences) -> Unit,
-    onEvent: (SubtitleOptionsEvent) -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     val subtitleTracksState = rememberTracksState(player, C.TRACK_TYPE_TEXT)
-    val subtitleOptionsState = rememberSubtitleOptionsState(player, onEvent)
+    val subtitleOptionsState = rememberSubtitleOptionsState(player)
     var isOnlineSubtitleDialogVisible by remember { mutableStateOf(false) }
     var onlineSubtitleUrl by remember { mutableStateOf("") }
 
@@ -113,15 +84,31 @@ fun SubtitleSelectorContent(
     ) {
         PanelOptionList(modifier = Modifier.selectableGroup()) {
             subtitleTracksState.tracks.forEachIndexed { index, track ->
-                PanelOptionRow(
-                    isSelected = track.isSelected,
-                    text = track.mediaTrackGroup.getName(C.TRACK_TYPE_TEXT, index),
-                    testTag = "item_subtitle_$index",
-                    onClick = {
-                        subtitleTracksState.switchTrack(index)
-                        onDismiss()
-                    },
-                )
+                val subtitleId = track.externalSubtitleId(subtitleTracksState.addedSubtitleIds)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    PanelOptionRow(
+                        modifier = Modifier.weight(1f),
+                        isSelected = track.isSelected,
+                        text = track.mediaTrackGroup.getName(C.TRACK_TYPE_TEXT, index),
+                        maxTextLines = Int.MAX_VALUE,
+                        testTag = "item_subtitle_$index",
+                        onClick = {
+                            subtitleTracksState.switchTrack(index)
+                            onDismiss()
+                        },
+                    )
+                    if (subtitleId != null && subtitleId in subtitleTracksState.addedSubtitleIds) {
+                        MiuixIconButton(
+                            modifier = Modifier.testTag("btn_remove_subtitle_$index"),
+                            onClick = { onRemoveSubtitleClick(subtitleId) },
+                        ) {
+                            MiuixIcon(
+                                imageVector = AppIcons.Delete,
+                                contentDescription = stringResource(R.string.remove_subtitle),
+                            )
+                        }
+                    }
+                }
             }
             PanelOptionRow(
                 isSelected = subtitleTracksState.tracks.none { it.isSelected },
@@ -150,6 +137,12 @@ fun SubtitleSelectorContent(
                 isOnlineSubtitleDialogVisible = true
             },
         )
+        Spacer(modifier = Modifier.size(12.dp))
+        PanelActionButton(
+            modifier = Modifier.testTag("btn_search_online_subtitle"),
+            text = stringResource(R.string.online_subtitle_search),
+            onClick = onShowSubtitleSearch,
+        )
         Spacer(modifier = Modifier.size(16.dp))
         DelayInput(
             value = subtitleOptionsState.delayMilliseconds,
@@ -160,6 +153,14 @@ fun SubtitleSelectorContent(
             value = subtitleOptionsState.speedMultiplier,
             onValueChange = { subtitleOptionsState.setSpeed(it) },
         )
+        if (subtitleOptionsState.isCalibrated) {
+            Spacer(modifier = Modifier.size(12.dp))
+            PanelActionButton(
+                modifier = Modifier.testTag("btn_reset_subtitle_calibration"),
+                text = stringResource(R.string.subtitle_calibration_reset),
+                onClick = { subtitleOptionsState.reset() },
+            )
+        }
         Spacer(modifier = Modifier.size(16.dp))
         ListSectionTitle(text = stringResource(id = R.string.subtitle_appearance))
         SubtitleStylePanel(
@@ -174,23 +175,25 @@ fun SubtitleSelectorContent(
             onDismissRequest = { isOnlineSubtitleDialogVisible = false },
             title = stringResource(R.string.add_online_subtitle),
             content = {
-                OutlinedTextField(
-                    value = onlineSubtitleUrl,
-                    onValueChange = { onlineSubtitleUrl = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("input_online_subtitle_url"),
-                    label = {
-                        Text(text = stringResource(R.string.online_subtitle_url))
-                    },
-                    placeholder = {
-                        Text(text = stringResource(R.string.online_subtitle_url_example))
-                    },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Uri,
-                    ),
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextField(
+                        value = onlineSubtitleUrl,
+                        onValueChange = { onlineSubtitleUrl = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_online_subtitle_url"),
+                        singleLine = true,
+                        label = stringResource(R.string.online_subtitle_url),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Uri,
+                        ),
+                    )
+                    MiuixText(
+                        text = stringResource(R.string.online_subtitle_url_example),
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        style = MiuixTheme.textStyles.footnote1,
+                    )
+                }
             },
             confirmButton = {
                 MiuixTextButton(
@@ -233,12 +236,11 @@ private fun DelayInput(
     }
 
     NumberChooserInput(
-        title = stringResource(R.string.delay),
+        title = stringResource(R.string.subtitle_delay_seconds),
         value = valueString,
         textFieldTestTag = "input_subtitle_delay",
         decrementButtonTestTag = "btn_subtitle_delay_decrement",
         incrementButtonTestTag = "btn_subtitle_delay_increment",
-        suffix = { Text(text = "sec") },
         onValueChange = { newValue ->
             if (newValue.isBlank()) {
                 valueString = ""
@@ -287,12 +289,11 @@ private fun SpeedInput(
     }
 
     NumberChooserInput(
-        title = stringResource(R.string.speed),
+        title = stringResource(R.string.subtitle_speed_multiplier),
         value = valueString,
         textFieldTestTag = "input_subtitle_speed",
         decrementButtonTestTag = "btn_subtitle_speed_decrement",
         incrementButtonTestTag = "btn_subtitle_speed_increment",
-        suffix = { Text(text = "x") },
         onValueChange = { newValue ->
             if (newValue.isBlank()) {
                 valueString = ""
@@ -335,44 +336,42 @@ private fun NumberChooserInput(
     onValueChange: (String) -> Unit,
     onIncrement: () -> Unit = {},
     onDecrement: () -> Unit = {},
-    suffix: @Composable (() -> Unit)? = null,
 ) {
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        FilledTonalIconButton(
+        MiuixIconButton(
             onClick = { },
             modifier = Modifier
                 .then(decrementButtonTestTag?.let(Modifier::testTag) ?: Modifier)
                 .repeatingClickable(onClick = onDecrement),
         ) {
-            Icon(
+            MiuixIcon(
                 painter = painterResource(R.drawable.ic_remove),
                 contentDescription = null,
             )
         }
-        OutlinedTextField(
-            label = { Text(text = title) },
+        TextField(
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier
                 .weight(1f)
                 .then(textFieldTestTag?.let(Modifier::testTag) ?: Modifier),
-            suffix = suffix,
             singleLine = true,
+            label = title,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Decimal,
             ),
         )
-        FilledTonalIconButton(
+        MiuixIconButton(
             onClick = { },
             modifier = Modifier
                 .then(incrementButtonTestTag?.let(Modifier::testTag) ?: Modifier)
                 .repeatingClickable(onClick = onIncrement),
         ) {
-            Icon(
+            MiuixIcon(
                 painter = painterResource(R.drawable.ic_add),
                 contentDescription = null,
             )

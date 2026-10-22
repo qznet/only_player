@@ -1,13 +1,10 @@
 name: Android 正式版发布
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
   workflow_dispatch:
     inputs:
       version:
-        description: '发布版本号，例如 0.15.4'
+        description: '发布版本号，例如 1.0.204'
         required: false
         type: string
       create_release:
@@ -15,26 +12,77 @@ on:
         required: true
         type: boolean
         default: true
+  push:
+    branches:
+      - main
+    paths:
+      - app/build.gradle.kts
+
+concurrency:
+  group: android-release
+  cancel-in-progress: true
 
 permissions:
   contents: write
-  actions: write
-
-concurrency:
-  group: android-release-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
+  validate-branch:
+    name: 校验正式版分支
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 要求在 main 分支运行
+        shell: bash
+        run: test "${{ github.ref }}" = 'refs/heads/main'
+
+  detect-version-change:
+    name: 检测版本号变更
+    needs: validate-branch
+    runs-on: ubuntu-24.04
+    outputs:
+      should_build: ${{ steps.detect.outputs.should_build }}
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: 检测 versionName 变更
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo 'should_build=true' >> "$GITHUB_OUTPUT"
+            echo '手动触发：启用构建。'
+            exit 0
+          fi
+
+          before="${{ github.event.before }}"
+          if [ -z "${before}" ] || [[ "${before}" =~ ^0+$ ]]; then
+            echo 'should_build=false' >> "$GITHUB_OUTPUT"
+            echo '缺少可比较的前一次提交：跳过构建。'
+            exit 0
+          fi
+
+          if git diff --unified=0 "${before}" "${{ github.sha }}" -- app/build.gradle.kts | grep -Eq '^[+-].*versionName'; then
+            echo 'should_build=true' >> "$GITHUB_OUTPUT"
+            echo 'versionName 已变更：启用构建。'
+          else
+            echo 'should_build=false' >> "$GITHUB_OUTPUT"
+            echo 'versionName 未变更：跳过构建。'
+          fi
+
   prepare:
     name: 准备发布信息
-    runs-on: ubuntu-latest
+    needs: detect-version-change
+    if: needs.detect-version-change.outputs.should_build == 'true'
+    runs-on: ubuntu-24.04
     outputs:
       application_id: ${{ steps.app.outputs.application_id }}
       version_name: ${{ steps.app.outputs.version_name }}
       version_code: ${{ steps.app.outputs.version_code }}
       release_version: ${{ steps.release.outputs.release_version }}
       release_tag: ${{ steps.release.outputs.release_tag }}
-      ref_name: ${{ steps.release.outputs.ref_name }}
       short_sha: ${{ steps.release.outputs.short_sha }}
       release_notes: ${{ steps.notes.outputs.release_notes }}
     steps:
@@ -47,69 +95,59 @@ jobs:
         id: app
         shell: bash
         run: |
-          application_id=$(grep -m1 'applicationId = "' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
-          version_name=$(grep -m1 'versionName = "' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
-          version_code=$(grep -m1 'versionCode = ' app/build.gradle.kts | sed -E 's/.*= ([0-9]+).*/\1/')
+          set -euo pipefail
+          application_id="$(grep -m1 'applicationId = "' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')"
+          version_name="$(grep -m1 'versionName = "' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')"
+          version_code="$(grep -m1 'versionCode = ' app/build.gradle.kts | sed -E 's/.*= ([0-9]+).*/\1/')"
 
-          if [ -z "$application_id" ] || [ -z "$version_name" ] || [ -z "$version_code" ]; then
+          if [ -z "${application_id}" ] || [ -z "${version_name}" ] || [ -z "${version_code}" ]; then
             echo "::error::无法从 app/build.gradle.kts 读取应用信息"
             exit 1
           fi
 
-          echo "application_id=$application_id" >> "$GITHUB_OUTPUT"
-          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
-          echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
+          echo "application_id=${application_id}" >> "$GITHUB_OUTPUT"
+          echo "version_name=${version_name}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${version_code}" >> "$GITHUB_OUTPUT"
 
       - name: 解析发布版本
         id: release
         shell: bash
         run: |
-          ref_name="${GITHUB_REF_NAME}"
-          short_sha=$(git rev-parse --short HEAD)
+          set -euo pipefail
+          short_sha="$(git rev-parse --short HEAD)"
 
           if [ -n "${{ github.event.inputs.version }}" ]; then
             release_version="${{ github.event.inputs.version }}"
-            echo "📝 使用手动输入版本：$release_version"
-          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            release_version="${GITHUB_REF#refs/tags/v}"
-            echo "🏷️ 从标签读取版本：$release_version"
+            echo "使用手动输入版本：${release_version}"
           else
-            echo "::error::无法确定发布版本号，请提供 workflow_dispatch 输入或推送 v*.*.* 标签"
-            exit 1
+            release_version="${{ steps.app.outputs.version_name }}"
+            echo "从 versionName 读取版本：${release_version}"
           fi
 
-          if ! [[ "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::发布版本号格式无效：$release_version"
+          if [[ ! "${release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::发布版本号格式无效：${release_version}"
             echo "期望格式：x.y.z"
             exit 1
           fi
 
-          release_tag="v$release_version"
-
-          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
-          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
-          echo "ref_name=$ref_name" >> "$GITHUB_OUTPUT"
-          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+          release_tag="v${release_version}"
+          echo "release_version=${release_version}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
 
       - name: 校验版本号一致性
         shell: bash
         run: |
+          set -euo pipefail
           release_version="${{ steps.release.outputs.release_version }}"
           actual_version_name="${{ steps.app.outputs.version_name }}"
-          actual_version_code="${{ steps.app.outputs.version_code }}"
-
-          echo "🔍 版本对比信息："
-          echo "  发布版本：      $release_version"
-          echo "  versionName：   $actual_version_name"
-          echo "  versionCode：   $actual_version_code"
-
-          if [ "$release_version" != "$actual_version_name" ]; then
+          echo "发布版本：${release_version}"
+          echo "versionName：${actual_version_name}"
+          echo "versionCode：${{ steps.app.outputs.version_code }}"
+          if [ "${release_version}" != "${actual_version_name}" ]; then
             echo "::error::发布版本号与 app/build.gradle.kts 中的 versionName 不一致"
-            echo "请将 versionName 更新为 $release_version，或改用 release/v$actual_version_name 分支"
             exit 1
           fi
-
-          echo "✅ 版本号校验通过"
 
       - name: 验证签名配置
         shell: bash
@@ -119,54 +157,55 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           for key in KEYSTORE KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
             if [ -z "${!key}" ]; then
               echo "::error::缺少必需 Secret: ${key}"
               exit 1
             fi
           done
-
           keystore_path="${RUNNER_TEMP}/release.jks"
           printf '%s' "${KEYSTORE}" | base64 --decode > "${keystore_path}"
           keytool -list -keystore "${keystore_path}" \
             -storepass "${KEYSTORE_PASSWORD}" \
             -alias "${KEY_ALIAS}" > /dev/null
-          echo "✅ 签名校验通过"
+          echo "签名校验通过"
 
-      - name: 读取并展示更新日志
+      - name: 读取更新日志
         id: notes
         shell: bash
         run: |
+          set -euo pipefail
           changelog_file=".github/CHANGELOG.md"
           if [ ! -f "${changelog_file}" ]; then
             echo "::error::缺少更新日志文件: ${changelog_file}"
             exit 1
           fi
-
-          cat "${changelog_file}" > release_notes.md
+          cp "${changelog_file}" release_notes.md
           echo "========== 本次更新日志 =========="
           cat release_notes.md
-
-          release_notes=$(base64 -w 0 release_notes.md)
+          release_notes="$(base64 -w 0 release_notes.md)"
           echo "release_notes=${release_notes}" >> "$GITHUB_OUTPUT"
 
       - name: 输出预构建信息
         shell: bash
         run: |
-          echo "============================================"
-          echo "📦 应用 ID:     ${{ steps.app.outputs.application_id }}"
-          echo "🏷️ 版本名称:    ${{ steps.app.outputs.version_name }}"
-          echo "🔢 版本号:      ${{ steps.app.outputs.version_code }}"
-          echo "🚀 发布版本:    ${{ steps.release.outputs.release_version }}"
-          echo "🏷️ 发布标签:    ${{ steps.release.outputs.release_tag }}"
-          echo "🌿 分支名称:    ${{ steps.release.outputs.ref_name }}"
-          echo "🧾 提交短哈希:  ${{ steps.release.outputs.short_sha }}"
-          echo "============================================"
+          {
+            echo "### 正式版发布信息"
+            echo
+            echo "- 应用 ID: \`${{ steps.app.outputs.application_id }}\`"
+            echo "- 通道: \`stable\`"
+            echo "- 版本: \`${{ steps.release.outputs.release_version }}\`"
+            echo "- 版本号: \`${{ steps.app.outputs.version_code }}\`"
+            echo "- 标签: \`${{ steps.release.outputs.release_tag }}\`"
+            echo "- 提交: \`${{ steps.release.outputs.short_sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   build:
     name: 签名构建 (${{ matrix.abi }})
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -177,24 +216,10 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v6
 
-      - name: 输出预构建信息
-        shell: bash
-        run: |
-          echo "============================================"
-          echo "📦 应用 ID:     ${{ needs.prepare.outputs.application_id }}"
-          echo "🏷️ 版本名称:    ${{ needs.prepare.outputs.version_name }}"
-          echo "🔢 版本号:      ${{ needs.prepare.outputs.version_code }}"
-          echo "🚀 发布版本:    ${{ needs.prepare.outputs.release_version }}"
-          echo "🏷️ 发布标签:    ${{ needs.prepare.outputs.release_tag }}"
-          echo "🌿 分支名称:    ${{ needs.prepare.outputs.ref_name }}"
-          echo "🧾 提交短哈希:  ${{ needs.prepare.outputs.short_sha }}"
-          echo "🧱 目标架构:    ${{ matrix.abi }}"
-          echo "============================================"
-
-      - name: 配置 JDK 25
+      - name: 配置 JDK 26
         uses: actions/setup-java@v5
         with:
-          java-version: 25
+          java-version: 26
           distribution: temurin
 
       - name: 配置 Gradle
@@ -215,18 +240,13 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
+          set -euo pipefail
           keystore_path="${RUNNER_TEMP}/release.jks"
           printf '%s' "${KEYSTORE}" | base64 --decode > "${keystore_path}"
           keytool -list -keystore "${keystore_path}" \
             -storepass "${KEYSTORE_PASSWORD}" \
             -alias "${KEY_ALIAS}" > /dev/null
           echo "keystore_path=${keystore_path}" >> "$GITHUB_OUTPUT"
-
-      - name: 写入发布日志
-        shell: bash
-        run: |
-          printf '%s' '${{ needs.prepare.outputs.release_notes }}' | base64 --decode > release_notes.md
-          cat release_notes.md
 
       - name: 构建已签名正式版
         shell: bash
@@ -240,44 +260,31 @@ jobs:
       - name: 校验构建产物
         shell: bash
         run: |
+          set -euo pipefail
           required_file="build/apk/Only-Player-${{ matrix.abi }}-${{ needs.prepare.outputs.release_version }}.apk"
           if [ ! -f "${required_file}" ]; then
             echo "::error::缺少构建产物：${required_file}"
             exit 1
           fi
-
-          echo "✅ 构建产物校验通过"
+          echo "构建产物校验通过"
 
       - name: 上传发布产物
         uses: actions/upload-artifact@v7
         with:
           name: Only-Player-release-${{ needs.prepare.outputs.release_version }}-${{ matrix.abi }}
           path: build/apk/
+          if-no-files-found: error
 
   release:
     name: 创建 GitHub 发布
     needs: [prepare, build]
-    runs-on: ubuntu-latest
-    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.create_release == 'true' }}
+    runs-on: ubuntu-24.04
+    if: ${{ needs.build.result == 'success' && (github.event_name != 'workflow_dispatch' || github.event.inputs.create_release == 'true') }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-      - name: 确保发布标签存在
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          tag="${{ needs.prepare.outputs.release_tag }}"
-          if git rev-parse "$tag" >/dev/null 2>&1; then
-            echo "标签 $tag 已存在"
-            exit 0
-          fi
-
-          git tag "$tag"
-          git push origin "$tag"
 
       - name: 下载所有构建产物
         uses: actions/download-artifact@v8
@@ -286,20 +293,96 @@ jobs:
           path: release
           merge-multiple: true
 
-      - name: 写入发布日志
+      - name: 写入更新日志
         shell: bash
         run: |
+          set -euo pipefail
           printf '%s' '${{ needs.prepare.outputs.release_notes }}' | base64 --decode > release_notes.md
           cat release_notes.md
 
       - name: 创建 GitHub 发布
-        uses: softprops/action-gh-release@v2.6.1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v3
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           files: release/*.apk
           overwrite_files: true
+          fail_on_unmatched_files: true
           draft: false
+          prerelease: false
+          make_latest: true
           name: Only Player ${{ needs.prepare.outputs.release_tag }}
           body_path: release_notes.md
           tag_name: ${{ needs.prepare.outputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+
+      - name: 查找已合入的开发分支来源
+        id: promotion
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100" \
+            > main-pulls.json
+          pull_number=''
+          source_sha=''
+          while IFS=$'\t' read -r candidate_number merge_sha candidate_source_sha; do
+            if git merge-base --is-ancestor "${merge_sha}" "${GITHUB_SHA}"; then
+              pull_number="${candidate_number}"
+              source_sha="${candidate_source_sha}"
+              break
+            fi
+          done < <(
+            jq -r --arg repository "${GITHUB_REPOSITORY}" '
+              [
+                .[][]
+                | select(
+                    .merged_at != null
+                    and .base.ref == "main"
+                    and .head.ref == "dev"
+                    and .head.repo.full_name == $repository
+                    and .merge_commit_sha != null
+                    and .head.sha != null
+                  )
+              ]
+              | sort_by(.merged_at)
+              | reverse
+              | .[]
+              | [.number, .merge_commit_sha, .head.sha]
+              | @tsv
+            ' main-pulls.json
+          )
+          if [ -z "${source_sha}" ]; then
+            echo '::notice::没有包含在本次发布中的 dev → main 合入记录，跳过开发版基线标签。'
+            echo "source_sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'pull_number=%s\nsource_sha=%s\n' "${pull_number}" "${source_sha}" | tee -a "$GITHUB_OUTPUT"
+
+      - name: 创建开发版基线标签
+        if: steps.promotion.outputs.source_sha != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA: ${{ steps.promotion.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          baseline_tag="dev-base/${{ needs.prepare.outputs.release_tag }}"
+          existing_sha="$(
+            git ls-remote --tags origin "refs/tags/${baseline_tag}" "refs/tags/${baseline_tag}^{}" |
+              awk '$2 ~ /\^\{\}$/ { peeled=$1 } $2 !~ /\^\{\}$/ { direct=$1 } END { print peeled ? peeled : direct }'
+          )"
+          if [ -n "${existing_sha}" ]; then
+            if [ "${existing_sha}" != "${SOURCE_SHA}" ]; then
+              echo "::error::${baseline_tag} 已指向 ${existing_sha}，期望 ${SOURCE_SHA}。"
+              exit 1
+            fi
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/${baseline_tag}" \
+              -f sha="${SOURCE_SHA}" >/dev/null
+          fi
+          echo "开发版基线 ${baseline_tag} 指向 ${SOURCE_SHA}。"
+          echo "- 开发版基线: \`${baseline_tag}\`" >> "$GITHUB_STEP_SUMMARY"

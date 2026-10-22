@@ -15,9 +15,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import one.only.player.core.data.repository.AppUpdateChecker
-import one.only.player.core.data.repository.AppUpdateInfo
 import one.only.player.core.data.repository.AppUpdateResult
 import one.only.player.core.data.repository.PreferencesRepository
+import one.only.player.core.model.AppUpdateInfo
 import one.only.player.core.model.ApplicationPreferences
 
 @HiltViewModel
@@ -52,7 +52,7 @@ class MainViewModel @Inject constructor(
             // 等首屏画完再查，否则弹窗要新建一个 Window，和启动一起抢主线程会明显掉帧
             delay(STARTUP_CHECK_DELAY_MS)
             // 启动时只在确实有新版本时弹窗，检查失败不打扰
-            _updateInfo.value = when (val result = appUpdateChecker.checkForUpdate(versionName)) {
+            _updateInfo.value = when (val result = appUpdateChecker.checkForUpdate(versionName, prefs.updateChannel)) {
                 is AppUpdateResult.Available -> result.info
                 AppUpdateResult.UpToDate, AppUpdateResult.Failed -> null
             }

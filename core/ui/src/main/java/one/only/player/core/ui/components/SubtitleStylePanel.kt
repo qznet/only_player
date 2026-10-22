@@ -38,7 +38,6 @@ fun SubtitleStylePanel(
             )
             PreferenceSlider(
                 modifier = Modifier.testTag("item_settings_subtitle_size"),
-                sliderModifier = Modifier.testTag("slider_settings_subtitle_size"),
                 title = stringResource(id = R.string.subtitle_text_size),
                 description = preferences.subtitleTextSize.toDisplayText(),
                 icon = AppIcons.FontSize,
@@ -81,7 +80,6 @@ fun SubtitleStylePanel(
         PreferenceGroup {
             PreferenceSlider(
                 modifier = Modifier.testTag("item_settings_subtitle_bottom_padding"),
-                sliderModifier = Modifier.testTag("slider_settings_subtitle_bottom_padding"),
                 title = stringResource(id = R.string.subtitle_position),
                 description = subtitleBottomPaddingFraction.toSubtitlePositionDisplayText(),
                 icon = AppIcons.Length,
@@ -114,7 +112,6 @@ fun SubtitleStylePanel(
             )
             PreferenceSlider(
                 modifier = Modifier.testTag("item_settings_subtitle_scale"),
-                sliderModifier = Modifier.testTag("slider_settings_subtitle_scale"),
                 title = stringResource(id = R.string.subtitle_scale),
                 description = preferences.subtitleScale.toSubtitleScaleDisplayText(),
                 icon = AppIcons.Scale,
@@ -146,7 +143,6 @@ fun SubtitleStylePanel(
             )
             PreferenceSlider(
                 modifier = Modifier.testTag("item_settings_subtitle_outline_thickness"),
-                sliderModifier = Modifier.testTag("slider_settings_subtitle_outline_thickness"),
                 title = stringResource(id = R.string.subtitle_outline_thickness),
                 description = preferences.subtitleOutlineThickness.toString(),
                 icon = AppIcons.BorderOuter,
@@ -169,7 +165,6 @@ fun SubtitleStylePanel(
             )
             PreferenceSlider(
                 modifier = Modifier.testTag("item_settings_subtitle_shadow_strength"),
-                sliderModifier = Modifier.testTag("slider_settings_subtitle_shadow_strength"),
                 title = stringResource(id = R.string.subtitle_shadow_strength),
                 description = preferences.subtitleShadowStrength.toString(),
                 icon = AppIcons.Shadow,

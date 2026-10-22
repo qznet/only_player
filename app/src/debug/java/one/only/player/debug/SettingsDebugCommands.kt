@@ -8,6 +8,9 @@ import one.only.player.core.common.AppLanguageManager
 import one.only.player.core.common.AppThemeMode
 import one.only.player.core.common.AppThemeModeManager
 import one.only.player.core.model.ApplicationPreferences
+import one.only.player.core.model.AudioEqualizerBand
+import one.only.player.core.model.AudioEqualizerBuiltInPreset
+import one.only.player.core.model.AudioEqualizerPreset
 import one.only.player.core.model.ControllerAutoHidePreset
 import one.only.player.core.model.DecoderPriority
 import one.only.player.core.model.DoubleTapGesture
@@ -24,10 +27,21 @@ import one.only.player.core.model.SubtitleColor
 import one.only.player.core.model.SubtitleEdgeStyle
 import one.only.player.core.model.ThemeConfig
 import one.only.player.core.model.ThumbnailGenerationStrategy
+import one.only.player.core.model.UpdateChannel
+import one.only.player.core.model.VideoFilterPreset
+import one.only.player.core.model.toAudioEqualizerPreset
+import one.only.player.core.model.toVideoFilterPreset
+import one.only.player.core.model.withAudioEqualizerBandLevel
+import one.only.player.core.model.withAudioEqualizerBuiltInPresetApplied
+import one.only.player.core.model.withAudioEqualizerPresetApplied
+import one.only.player.core.model.withAudioEqualizerPresetDeleted
+import one.only.player.core.model.withAudioEqualizerPresetSaved
 import one.only.player.core.model.withControlMoved
 import one.only.player.core.model.withVideoFilterAdjustment
+import one.only.player.core.model.withVideoFilterPresetApplied
+import one.only.player.core.model.withVideoFilterPresetDeleted
+import one.only.player.core.model.withVideoFilterPresetSaved
 import one.only.player.core.model.withVideoSharpening
-import one.only.player.core.model.withVideoSharpeningFilterEnabled
 
 internal fun Context.runSettingsCommand(
     method: String,
@@ -189,6 +203,9 @@ internal suspend fun DebugCommandEntryPoint.setSetting(
             preferences.copy(shouldRememberPlayerBrightness = isEnabled)
         }
         "gesture.seek" -> updatePlayerBoolean(value) { preferences, isEnabled -> preferences.copy(shouldUseSeekControls = isEnabled) }
+        "gesture.seek_preview_frame" -> updatePlayerBoolean(value) { preferences, isEnabled ->
+            preferences.copy(isSeekPreviewFrameEnabled = isEnabled)
+        }
         "gesture.seek_sensitivity" -> updatePlayerFloat(value) { preferences, floatValue ->
             preferences.copy(seekSensitivity = floatValue.coerceIn(0.1f, 2.0f))
         }
@@ -226,48 +243,30 @@ internal suspend fun DebugCommandEntryPoint.setSetting(
             preferencesRepository().updatePlayerPreferences { it.copy(decoderPriority = priority) }
         }
         "decoder.video_filters" -> updatePlayerBoolean(value) { preferences, isEnabled -> preferences.copy(shouldApplyVideoFilters = isEnabled) }
-        "decoder.brightness_enabled" -> updatePlayerBoolean(value) { preferences, isEnabled ->
-            preferences.withVideoFilterAdjustment { it.copy(isVideoBrightnessFilterEnabled = isEnabled) }
-        }
         "decoder.brightness" -> updatePlayerFloat(value) { preferences, floatValue ->
             preferences.withVideoFilterAdjustment {
                 it.copy(videoBrightness = floatValue.coerceIn(PlayerPreferences.MIN_VIDEO_BRIGHTNESS, PlayerPreferences.MAX_VIDEO_BRIGHTNESS))
             }
-        }
-        "decoder.contrast_enabled" -> updatePlayerBoolean(value) { preferences, isEnabled ->
-            preferences.withVideoFilterAdjustment { it.copy(isVideoContrastFilterEnabled = isEnabled) }
         }
         "decoder.contrast" -> updatePlayerFloat(value) { preferences, floatValue ->
             preferences.withVideoFilterAdjustment {
                 it.copy(videoContrast = floatValue.coerceIn(PlayerPreferences.MIN_VIDEO_CONTRAST, PlayerPreferences.MAX_VIDEO_CONTRAST))
             }
         }
-        "decoder.saturation_enabled" -> updatePlayerBoolean(value) { preferences, isEnabled ->
-            preferences.withVideoFilterAdjustment { it.copy(isVideoSaturationFilterEnabled = isEnabled) }
-        }
         "decoder.saturation" -> updatePlayerFloat(value) { preferences, floatValue ->
             preferences.withVideoFilterAdjustment {
                 it.copy(videoSaturation = floatValue.coerceIn(PlayerPreferences.MIN_VIDEO_SATURATION, PlayerPreferences.MAX_VIDEO_SATURATION))
             }
-        }
-        "decoder.hue_enabled" -> updatePlayerBoolean(value) { preferences, isEnabled ->
-            preferences.withVideoFilterAdjustment { it.copy(isVideoHueFilterEnabled = isEnabled) }
         }
         "decoder.hue" -> updatePlayerFloat(value) { preferences, floatValue ->
             preferences.withVideoFilterAdjustment {
                 it.copy(videoHue = floatValue.coerceIn(PlayerPreferences.MIN_VIDEO_HUE, PlayerPreferences.MAX_VIDEO_HUE))
             }
         }
-        "decoder.gamma_enabled" -> updatePlayerBoolean(value) { preferences, isEnabled ->
-            preferences.withVideoFilterAdjustment { it.copy(isVideoGammaFilterEnabled = isEnabled) }
-        }
         "decoder.gamma" -> updatePlayerFloat(value) { preferences, floatValue ->
             preferences.withVideoFilterAdjustment {
                 it.copy(videoGamma = floatValue.coerceIn(PlayerPreferences.MIN_VIDEO_GAMMA, PlayerPreferences.MAX_VIDEO_GAMMA))
             }
-        }
-        "decoder.sharpening_enabled" -> updatePlayerBoolean(value) { preferences, isEnabled ->
-            preferences.withVideoSharpeningFilterEnabled(isEnabled)
         }
         "decoder.sharpening" -> updatePlayerFloat(value) { preferences, floatValue ->
             preferences.withVideoSharpening(
@@ -294,6 +293,16 @@ internal suspend fun DebugCommandEntryPoint.setSetting(
         "audio.normalization" -> updatePlayerBoolean(value) { preferences, isEnabled -> preferences.copy(isVolumeNormalizationEnabled = isEnabled) }
         "audio.boost" -> updatePlayerBoolean(value) { preferences, isEnabled -> preferences.copy(isVolumeBoostEnabled = isEnabled) }
         "audio.spatial" -> updatePlayerBoolean(value) { preferences, isEnabled -> preferences.copy(isSpatialAudioEnabled = isEnabled) }
+        "audio.equalizer" -> updatePlayerBoolean(value) { preferences, isEnabled -> preferences.copy(shouldApplyAudioEqualizer = isEnabled) }
+        "audio.equalizer_band" -> {
+            val band = equalizerBandValue(value.requiredString(EXTRA_NAME))
+            val levelDb = value.requiredInt(EXTRA_VALUE)
+            preferencesRepository().updatePlayerPreferences { it.withAudioEqualizerBandLevel(band, levelDb) }
+        }
+        "audio.equalizer_preset" -> {
+            val preset = enumValue<AudioEqualizerBuiltInPreset>(value.requiredString(EXTRA_VALUE))
+            preferencesRepository().updatePlayerPreferences { it.withAudioEqualizerBuiltInPresetApplied(preset) }
+        }
         "subtitle.auto_load" -> updatePlayerBoolean(value) { preferences, isEnabled -> preferences.copy(isSubtitleAutoLoadEnabled = isEnabled) }
         "subtitle.remember_track" -> updatePlayerBoolean(value) { preferences, isEnabled -> preferences.copy(shouldRememberSubtitleTrack = isEnabled) }
         "subtitle.language" -> updatePlayerString(value) { preferences, stringValue -> preferences.copy(preferredSubtitleLanguage = stringValue) }
@@ -340,6 +349,10 @@ internal suspend fun DebugCommandEntryPoint.setSetting(
         "privacy.prevent_screenshots" -> updateApplicationBoolean(value) { preferences, isEnabled -> preferences.copy(shouldPreventScreenshots = isEnabled) }
         "privacy.hide_in_recents" -> updateApplicationBoolean(value) { preferences, isEnabled -> preferences.copy(shouldHideInRecents = isEnabled) }
         "about.check_updates_on_startup" -> updateApplicationBoolean(value) { preferences, isEnabled -> preferences.copy(shouldCheckForUpdatesOnStartup = isEnabled) }
+        "about.update_channel" -> {
+            val updateChannel = enumValue<UpdateChannel>(value.requiredString(EXTRA_VALUE))
+            preferencesRepository().updateApplicationPreferences { it.copy(updateChannel = updateChannel) }
+        }
         else -> error("Unknown setting target: $target")
     }
 }
@@ -366,6 +379,7 @@ internal suspend fun DebugCommandEntryPoint.toggleSetting(target: String?) {
         "player.remember_brightness" -> togglePlayer { it.copy(shouldRememberPlayerBrightness = !it.shouldRememberPlayerBrightness) }
         "player.dim_video_controls" -> togglePlayer { it.copy(shouldDimVideoWhenControlsVisible = !it.shouldDimVideoWhenControlsVisible) }
         "gesture.seek" -> togglePlayer { it.copy(shouldUseSeekControls = !it.shouldUseSeekControls) }
+        "gesture.seek_preview_frame" -> togglePlayer { it.copy(isSeekPreviewFrameEnabled = !it.isSeekPreviewFrameEnabled) }
         "gesture.brightness" -> togglePlayer { it.copy(isBrightnessSwipeGestureEnabled = !it.isBrightnessSwipeGestureEnabled) }
         "gesture.volume" -> togglePlayer { it.copy(isVolumeSwipeGestureEnabled = !it.isVolumeSwipeGestureEnabled) }
         "gesture.double_tap" -> togglePlayer { it.copy(doubleTapGesture = if (it.doubleTapGesture == DoubleTapGesture.NONE) DoubleTapGesture.FAST_FORWARD_AND_REWIND else DoubleTapGesture.NONE) }
@@ -377,24 +391,6 @@ internal suspend fun DebugCommandEntryPoint.toggleSetting(target: String?) {
         "gesture.zoom" -> togglePlayer { it.copy(shouldUseZoomControls = !it.shouldUseZoomControls) }
         "gesture.pan" -> togglePlayer { it.copy(isPanGestureEnabled = !it.isPanGestureEnabled && it.shouldUseZoomControls) }
         "decoder.video_filters" -> togglePlayer { it.copy(shouldApplyVideoFilters = !it.shouldApplyVideoFilters) }
-        "decoder.brightness_enabled" -> togglePlayer {
-            it.withVideoFilterAdjustment { preferences -> preferences.copy(isVideoBrightnessFilterEnabled = !preferences.isVideoBrightnessFilterEnabled) }
-        }
-        "decoder.contrast_enabled" -> togglePlayer {
-            it.withVideoFilterAdjustment { preferences -> preferences.copy(isVideoContrastFilterEnabled = !preferences.isVideoContrastFilterEnabled) }
-        }
-        "decoder.saturation_enabled" -> togglePlayer {
-            it.withVideoFilterAdjustment { preferences -> preferences.copy(isVideoSaturationFilterEnabled = !preferences.isVideoSaturationFilterEnabled) }
-        }
-        "decoder.hue_enabled" -> togglePlayer {
-            it.withVideoFilterAdjustment { preferences -> preferences.copy(isVideoHueFilterEnabled = !preferences.isVideoHueFilterEnabled) }
-        }
-        "decoder.gamma_enabled" -> togglePlayer {
-            it.withVideoFilterAdjustment { preferences -> preferences.copy(isVideoGammaFilterEnabled = !preferences.isVideoGammaFilterEnabled) }
-        }
-        "decoder.sharpening_enabled" -> togglePlayer {
-            it.withVideoSharpeningFilterEnabled(!it.isVideoSharpeningFilterEnabled)
-        }
         "audio.require_focus" -> togglePlayer { it.copy(shouldRequireAudioFocus = !it.shouldRequireAudioFocus) }
         "audio.pause_on_headset_disconnect" -> togglePlayer { it.copy(shouldPauseOnHeadsetDisconnect = !it.shouldPauseOnHeadsetDisconnect) }
         "audio.system_volume_panel" -> togglePlayer { it.copy(shouldShowSystemVolumePanel = !it.shouldShowSystemVolumePanel) }
@@ -403,6 +399,7 @@ internal suspend fun DebugCommandEntryPoint.toggleSetting(target: String?) {
         "audio.normalization" -> togglePlayer { it.copy(isVolumeNormalizationEnabled = !it.isVolumeNormalizationEnabled) }
         "audio.boost" -> togglePlayer { it.copy(isVolumeBoostEnabled = !it.isVolumeBoostEnabled) }
         "audio.spatial" -> togglePlayer { it.copy(isSpatialAudioEnabled = !it.isSpatialAudioEnabled) }
+        "audio.equalizer" -> togglePlayer { it.copy(shouldApplyAudioEqualizer = !it.shouldApplyAudioEqualizer) }
         "subtitle.auto_load" -> togglePlayer { it.copy(isSubtitleAutoLoadEnabled = !it.isSubtitleAutoLoadEnabled) }
         "subtitle.remember_track" -> togglePlayer { it.copy(shouldRememberSubtitleTrack = !it.shouldRememberSubtitleTrack) }
         "subtitle.bold" -> togglePlayer { it.copy(shouldUseBoldSubtitleText = !it.shouldUseBoldSubtitleText) }
@@ -419,7 +416,9 @@ internal suspend fun DebugCommandEntryPoint.toggleSetting(target: String?) {
 internal suspend fun DebugCommandEntryPoint.runSettingAction(
     context: Context,
     target: String?,
+    extras: Bundle?,
 ) {
+    val value = extras ?: Bundle.EMPTY
     when (target) {
         "general.clear_thumbnail_cache" -> mediaInfoSynchronizer().clearThumbnailsCache()
         "general.clear_video_cache" -> mediaInfoSynchronizer().clearVideoCache()
@@ -433,10 +432,34 @@ internal suspend fun DebugCommandEntryPoint.runSettingAction(
         }
         "subtitle.clear_external_font" -> subtitleFontRepository().clearFont()
         "media.layout_scale_reset" -> preferencesRepository().updateApplicationPreferences {
-            it.withMediaLayoutScale(ApplicationPreferences.DEFAULT_MEDIA_LAYOUT_SCALE)
+            it.withVideoLayoutScale(ApplicationPreferences.DEFAULT_MEDIA_LAYOUT_SCALE).copy(folderLayoutScale = ApplicationPreferences.DEFAULT_MEDIA_LAYOUT_SCALE)
         }
         "player.reset_controls" -> preferencesRepository().updatePlayerPreferences {
             it.copy(controlsArrangement = PlayerControlsArrangement())
+        }
+        "decoder.save_filter_preset" -> preferencesRepository().updatePlayerPreferences {
+            val name = value.requiredString(EXTRA_VALUE)
+            it.withVideoFilterPresetSaved(it.toVideoFilterPreset(name, System.currentTimeMillis()))
+        }
+        "decoder.apply_filter_preset" -> {
+            val preset = findVideoFilterPreset(value.requiredString(EXTRA_VALUE))
+            preferencesRepository().updatePlayerPreferences { it.withVideoFilterPresetApplied(preset) }
+        }
+        "decoder.delete_filter_preset" -> {
+            val preset = findVideoFilterPreset(value.requiredString(EXTRA_VALUE))
+            preferencesRepository().updatePlayerPreferences { it.withVideoFilterPresetDeleted(preset) }
+        }
+        "audio.save_equalizer_preset" -> preferencesRepository().updatePlayerPreferences {
+            val name = value.requiredString(EXTRA_VALUE)
+            it.withAudioEqualizerPresetSaved(it.toAudioEqualizerPreset(name, System.currentTimeMillis()))
+        }
+        "audio.apply_equalizer_preset" -> {
+            val preset = findAudioEqualizerPreset(value.requiredString(EXTRA_VALUE))
+            preferencesRepository().updatePlayerPreferences { it.withAudioEqualizerPresetApplied(preset) }
+        }
+        "audio.delete_equalizer_preset" -> {
+            val preset = findAudioEqualizerPreset(value.requiredString(EXTRA_VALUE))
+            preferencesRepository().updatePlayerPreferences { it.withAudioEqualizerPresetDeleted(preset) }
         }
         else -> error("Unknown action target: $target")
     }
@@ -544,3 +567,17 @@ private suspend fun DebugCommandEntryPoint.toggleApplication(transform: (Applica
 private suspend fun DebugCommandEntryPoint.togglePlayer(transform: (PlayerPreferences) -> PlayerPreferences) {
     preferencesRepository().updatePlayerPreferences(transform)
 }
+
+// 先查再写：预设不存在时直接报错，避免被 DataSource 的 IO 容错吞掉
+private fun DebugCommandEntryPoint.findVideoFilterPreset(name: String): VideoFilterPreset = preferencesRepository().playerPreferences.value.videoFilterPresets
+    .firstOrNull { it.name == name }
+    ?: error("Filter preset not found: $name")
+
+private fun DebugCommandEntryPoint.findAudioEqualizerPreset(name: String): AudioEqualizerPreset = preferencesRepository().playerPreferences.value.audioEqualizerPresets
+    .firstOrNull { it.name == name }
+    ?: error("Equalizer preset not found: $name")
+
+// 频段既接受枚举名，也接受从 0 开始的下标
+private fun equalizerBandValue(value: String): AudioEqualizerBand = value.toIntOrNull()
+    ?.let { index -> AudioEqualizerBand.entries.getOrNull(index) }
+    ?: enumValue<AudioEqualizerBand>(value)

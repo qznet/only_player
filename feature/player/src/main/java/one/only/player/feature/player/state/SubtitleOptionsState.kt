@@ -9,7 +9,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.listen
 import androidx.media3.common.util.UnstableApi
@@ -19,20 +18,17 @@ import io.github.anilbeesetti.nextlib.media3ext.renderer.subtitleDelayMillisecon
 import io.github.anilbeesetti.nextlib.media3ext.renderer.subtitleSpeed
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import one.only.player.feature.player.extensions.copy
 import one.only.player.feature.player.service.getSubtitleDelayMilliseconds
 import one.only.player.feature.player.service.getSubtitleSpeed
+import one.only.player.feature.player.service.resetSubtitleCalibration
 import one.only.player.feature.player.service.setSubtitleDelayMilliseconds
 import one.only.player.feature.player.service.setSubtitleSpeed
 
 @UnstableApi
 @Composable
-fun rememberSubtitleOptionsState(
-    player: Player,
-    onEvent: (SubtitleOptionsEvent) -> Unit = {},
-): SubtitleOptionsState {
+fun rememberSubtitleOptionsState(player: Player): SubtitleOptionsState {
     val scope = rememberCoroutineScope()
-    val subtitleOptionsState = remember { SubtitleOptionsState(player, scope, onEvent) }
+    val subtitleOptionsState = remember(player, scope) { SubtitleOptionsState(player, scope) }
     LaunchedEffect(player) { subtitleOptionsState.observe() }
     return subtitleOptionsState
 }
@@ -41,7 +37,6 @@ fun rememberSubtitleOptionsState(
 class SubtitleOptionsState(
     val player: Player,
     val scope: CoroutineScope,
-    val onEvent: (SubtitleOptionsEvent) -> Unit = {},
 ) {
 
     var delayMilliseconds: Long by mutableLongStateOf(0L)
@@ -58,7 +53,6 @@ class SubtitleOptionsState(
                 else -> return@launch
             }
             updateSubtitleDelayMilliseconds()
-            updateDelayMetadataAndSendEvent()
         }
     }
 
@@ -70,7 +64,24 @@ class SubtitleOptionsState(
                 else -> return@launch
             }
             updateSubtitleSpeed()
-            updateSpeedMetadataAndSendEvent()
+        }
+    }
+
+    val isCalibrated: Boolean
+        get() = delayMilliseconds != 0L || speedMultiplier != DEFAULT_SPEED
+
+    fun reset() {
+        scope.launch {
+            when (player) {
+                is MediaController -> player.resetSubtitleCalibration()
+                is ExoPlayer -> {
+                    player.subtitleDelayMilliseconds = 0L
+                    player.subtitleSpeed = DEFAULT_SPEED
+                }
+                else -> return@launch
+            }
+            updateSubtitleDelayMilliseconds()
+            updateSubtitleSpeed()
         }
     }
 
@@ -78,7 +89,7 @@ class SubtitleOptionsState(
         updateSubtitleDelayMilliseconds()
         updateSubtitleSpeed()
         player.listen { events ->
-            if (events.containsAny(Player.EVENT_TRACKS_CHANGED, Player.EVENT_CUES)) {
+            if (events.containsAny(Player.EVENT_TRACKS_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION)) {
                 scope.launch {
                     updateSubtitleDelayMilliseconds()
                     updateSubtitleSpeed()
@@ -103,26 +114,7 @@ class SubtitleOptionsState(
         }
     }
 
-    private fun updateDelayMetadataAndSendEvent(delay: Long = this.delayMilliseconds) {
-        val currentMediaItem = player.currentMediaItem ?: return
-        player.replaceMediaItem(
-            player.currentMediaItemIndex,
-            currentMediaItem.copy(subtitleDelayMilliseconds = delay),
-        )
-        onEvent(SubtitleOptionsEvent.DelayChanged(currentMediaItem, delay))
+    private companion object {
+        private const val DEFAULT_SPEED = 1f
     }
-
-    private fun updateSpeedMetadataAndSendEvent(speed: Float = this.speedMultiplier) {
-        val currentMediaItem = player.currentMediaItem ?: return
-        player.replaceMediaItem(
-            player.currentMediaItemIndex,
-            currentMediaItem.copy(subtitleSpeed = speed),
-        )
-        onEvent(SubtitleOptionsEvent.SpeedChanged(currentMediaItem, speed))
-    }
-}
-
-sealed interface SubtitleOptionsEvent {
-    data class DelayChanged(val mediaItem: MediaItem, val delay: Long) : SubtitleOptionsEvent
-    data class SpeedChanged(val mediaItem: MediaItem, val speed: Float) : SubtitleOptionsEvent
 }

@@ -44,7 +44,9 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -114,13 +116,21 @@ import one.only.player.core.model.playerControls
 import one.only.player.core.model.slotOf
 import one.only.player.core.ui.R as coreUiR
 import one.only.player.core.ui.components.AppDialog
+import one.only.player.core.ui.components.AudioEqualizerPanel
+import one.only.player.core.ui.components.AudioEqualizerPresetListContent
+import one.only.player.core.ui.components.SavePresetNameDialog
+import one.only.player.core.ui.components.VideoFilterPresetListContent
 import one.only.player.core.ui.components.VideoFiltersPanel
+import one.only.player.core.ui.designsystem.AppIcons
 import one.only.player.core.ui.extensions.copy
 import one.only.player.core.ui.extensions.playerCornerControlsCapacity
+import one.only.player.feature.player.extensions.externalSubtitleId
+import one.only.player.feature.player.extensions.externalSubtitleIds
 import one.only.player.feature.player.extensions.nameRes
 import one.only.player.feature.player.extensions.noRippleClickable
 import one.only.player.feature.player.extensions.seekByRequestedOffset
 import one.only.player.feature.player.extensions.seekToRequestedPosition
+import one.only.player.feature.player.extensions.toMessageResId
 import one.only.player.feature.player.input.PlayerKeyboardController
 import one.only.player.feature.player.model.VideoChapter
 import one.only.player.feature.player.service.previewVideoFilters
@@ -142,6 +152,7 @@ import one.only.player.feature.player.state.rememberRotationState
 import one.only.player.feature.player.state.rememberSeekGestureState
 import one.only.player.feature.player.state.rememberSleepTimerState
 import one.only.player.feature.player.state.rememberTapGestureState
+import one.only.player.feature.player.state.rememberTracksState
 import one.only.player.feature.player.state.rememberVideoZoomAndContentScaleState
 import one.only.player.feature.player.state.rememberVolumeAndBrightnessGestureState
 import one.only.player.feature.player.state.rememberVolumeState
@@ -157,6 +168,9 @@ import one.only.player.feature.player.ui.LoopModeSelectorContent
 import one.only.player.feature.player.ui.MenuOverlayView
 import one.only.player.feature.player.ui.MenuRootContent
 import one.only.player.feature.player.ui.MenuRoute
+import one.only.player.feature.player.ui.OnlineSubtitleLanguageContent
+import one.only.player.feature.player.ui.OnlineSubtitleSearchContent
+import one.only.player.feature.player.ui.OnlineSubtitleSearchSettingsContent
 import one.only.player.feature.player.ui.PlaybackMarksContent
 import one.only.player.feature.player.ui.PlaybackSpeedSelectorContent
 import one.only.player.feature.player.ui.PlaylistContent
@@ -172,8 +186,11 @@ import one.only.player.feature.player.ui.controls.ControlsBottomModernView
 import one.only.player.feature.player.ui.controls.ControlsTopModernView
 import one.only.player.feature.player.ui.controls.UnlockControlsButton
 import one.only.player.feature.player.ui.panel.rememberFloatingPlayerPanelState
+import one.only.player.feature.player.ui.panel.rememberPlayerPanelTokens
 import one.only.player.feature.player.ui.playerControlBindings
 import top.yukonga.miuix.kmp.basic.ButtonDefaults as MiuixButtonDefaults
+import top.yukonga.miuix.kmp.basic.Icon as MiuixIcon
+import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
 import top.yukonga.miuix.kmp.basic.Text as MiuixText
 import top.yukonga.miuix.kmp.basic.TextButton as MiuixTextButton
 
@@ -246,11 +263,11 @@ internal fun MediaPlayerScreen(
     player: Player?,
     viewModel: PlayerViewModel,
     playerPreferences: PlayerPreferences,
-    isAmbienceModeEnabled: Boolean,
     externalSubtitleFontSource: ExternalSubtitleFontSource?,
     modifier: Modifier = Modifier,
     onSelectSubtitleClick: () -> Unit,
     onAddOnlineSubtitleClick: (String) -> Unit,
+    onRemoveSubtitleClick: (String) -> Unit,
     onBackClick: () -> Unit,
     onPlayInBackgroundClick: () -> Unit,
     isTakingScreenshot: Boolean = false,
@@ -263,8 +280,14 @@ internal fun MediaPlayerScreen(
         isVolumeBoostEnabled = playerPreferences.isVolumeBoostEnabled,
     )
     player ?: return
+    val isAmbienceModeEnabled = playerPreferences.isAmbienceModeEnabled
     val playbackMarks by viewModel.playbackMarks.collectAsStateWithLifecycle()
+    val onlineSubtitleSearch by viewModel.onlineSubtitleSearch.collectAsStateWithLifecycle()
     val metadataState = rememberMetadataState(player)
+    val subtitleTracksState = rememberTracksState(player, C.TRACK_TYPE_TEXT)
+    val selectedSubtitleId = subtitleTracksState.tracks
+        .firstOrNull { it.isSelected }
+        ?.externalSubtitleId(player.externalSubtitleIds())
     val chaptersState = rememberChaptersState(player)
     val mediaPresentationState = rememberMediaPresentationState(player)
     val controlsVisibilityState = rememberControlsVisibilityState(
@@ -283,6 +306,7 @@ internal fun MediaPlayerScreen(
         player = player,
         sensitivity = playerPreferences.seekSensitivity,
         isSeekGestureEnabled = playerPreferences.shouldUseSeekControls,
+        isSeekPreviewFrameEnabled = playerPreferences.isSeekPreviewFrameEnabled,
     )
     val pictureInPictureState = rememberPictureInPictureState(
         player = player,
@@ -325,18 +349,31 @@ internal fun MediaPlayerScreen(
 
     DisposableEffect(player) {
         viewModel.updatePlaybackMarkMediaItem(player.currentMediaItem)
+        viewModel.updateOnlineSubtitleMediaItem(player.currentMediaItem, player.mediaMetadata.title?.toString())
         val listener = object : Player.Listener {
             override fun onMediaItemTransition(
                 mediaItem: androidx.media3.common.MediaItem?,
                 reason: Int,
             ) {
                 viewModel.updatePlaybackMarkMediaItem(mediaItem)
+                viewModel.updateOnlineSubtitleMediaItem(mediaItem, player.mediaMetadata.title?.toString())
             }
         }
         player.addListener(listener)
         onDispose {
             player.removeListener(listener)
         }
+    }
+
+    LaunchedEffect(metadataState.title) {
+        viewModel.updateOnlineSubtitleMediaItem(player.currentMediaItem, metadataState.title)
+    }
+
+    LaunchedEffect(subtitleTracksState.addedSubtitleIds, selectedSubtitleId) {
+        viewModel.updateAddedOnlineSubtitles(
+            addedSubtitleIds = subtitleTracksState.addedSubtitleIds,
+            selectedSubtitleId = selectedSubtitleId,
+        )
     }
 
     LaunchedEffect(pictureInPictureState.isInPictureInPictureMode) {
@@ -412,17 +449,17 @@ internal fun MediaPlayerScreen(
     val sleepTimerState = rememberSleepTimerState(player = player)
     var shouldShowOverlay by remember { mutableStateOf(false) }
     var shouldAttachActivityVideoOutput by remember { mutableStateOf(true) }
-    var videoFiltersInitialPreferences by remember { mutableStateOf<PlayerPreferences?>(null) }
     var subtitleStylePreviewPreferences by remember { mutableStateOf<PlayerPreferences?>(null) }
     var isVideoMirrored by remember { mutableStateOf(false) }
-    val activePlayerPreferences = subtitleStylePreviewPreferences ?: playerPreferences
-    val videoFiltersUnavailableMessage = stringResource(coreUiR.string.video_filters_unavailable_software_decoder)
-    fun restoreVideoFiltersPreview() {
-        videoFiltersInitialPreferences?.let { initialPreferences ->
-            (player as? androidx.media3.session.MediaController)?.previewVideoFilters(initialPreferences)
-        }
-        videoFiltersInitialPreferences = null
+    var isSaveFilterPresetDialogVisible by remember { mutableStateOf(false) }
+    var isSaveEqualizerPresetDialogVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(metadataState.isVideoEffectsAvailable) {
+        if (metadataState.isVideoEffectsAvailable) return@LaunchedEffect
+        menuRouteStack = menuRouteStack.takeWhile { it != MenuRoute.VideoFilters }
+        isSaveFilterPresetDialogVisible = false
     }
+    val activePlayerPreferences = subtitleStylePreviewPreferences ?: playerPreferences
+    val videoFiltersUnavailableMessage = stringResource(coreUiR.string.video_filters_unavailable)
     fun updateSubtitleStyle(preferences: PlayerPreferences) {
         subtitleStylePreviewPreferences = preferences
         viewModel.updateSubtitleStyle(preferences)
@@ -433,7 +470,6 @@ internal fun MediaPlayerScreen(
     }
     val showVideoFilters = {
         if (metadataState.isVideoEffectsAvailable) {
-            videoFiltersInitialPreferences = playerPreferences
             openOverlayPanel(MenuRoute.VideoFilters)
         } else {
             Toast.makeText(context, videoFiltersUnavailableMessage, Toast.LENGTH_SHORT).show()
@@ -447,12 +483,7 @@ internal fun MediaPlayerScreen(
         )
         controlsVisibilityState.showControls()
     }
-    fun closeVideoFiltersOverlay() {
-        restoreVideoFiltersPreview()
-        menuRouteStack = emptyList()
-    }
-    fun confirmVideoFilters(preferences: PlayerPreferences) {
-        videoFiltersInitialPreferences = null
+    fun updateVideoFilters(preferences: PlayerPreferences) {
         (player as? androidx.media3.session.MediaController)?.previewVideoFilters(preferences)
         viewModel.updateVideoFilters(preferences)
     }
@@ -489,9 +520,6 @@ internal fun MediaPlayerScreen(
         }
     }
     fun dismissOverlay() {
-        if (menuRouteStack.contains(MenuRoute.VideoFilters)) {
-            restoreVideoFiltersPreview()
-        }
         menuRouteStack = emptyList()
     }
     fun seekToPlaybackMark(mark: PlaybackMark) {
@@ -553,9 +581,6 @@ internal fun MediaPlayerScreen(
     }
 
     fun popMenuRoute() {
-        if (menuRouteStack.lastOrNull() == MenuRoute.VideoFilters) {
-            restoreVideoFiltersPreview()
-        }
         if (menuRouteStack.size > 1) {
             menuRouteStack = menuRouteStack.dropLast(1)
         } else {
@@ -568,7 +593,6 @@ internal fun MediaPlayerScreen(
                 Toast.makeText(context, videoFiltersUnavailableMessage, Toast.LENGTH_SHORT).show()
                 return
             }
-            videoFiltersInitialPreferences = playerPreferences
         }
         menuRouteStack = menuRouteStack + target
     }
@@ -785,6 +809,8 @@ internal fun MediaPlayerScreen(
 
             PlayerDebugCommandBridge.ACTION_SHOW_VIDEO_FILTERS -> showVideoFilters()
 
+            PlayerDebugCommandBridge.ACTION_SHOW_AUDIO_EQUALIZER -> openOverlayPanel(MenuRoute.AudioEqualizer)
+
             PlayerDebugCommandBridge.ACTION_PIP -> {
                 enterPictureInPicture()
             }
@@ -888,9 +914,9 @@ internal fun MediaPlayerScreen(
     CompositionLocalProvider(
         LocalControlsVisibilityState provides controlsVisibilityState,
     ) {
-        Box {
+        Box(modifier = modifier) {
             Box(
-                modifier = modifier
+                modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black)
                     .onSizeChanged { size ->
@@ -961,7 +987,7 @@ internal fun MediaPlayerScreen(
                     exit = fadeOut(),
                 ) {
                     Box(
-                        modifier = modifier
+                        modifier = Modifier
                             .fillMaxSize()
                             .background(
                                 Color.Black.copy(alpha = 0.3f),
@@ -1118,6 +1144,7 @@ internal fun MediaPlayerScreen(
                         .noRippleClickable { dismissOverlay() },
                 )
             }
+            val menuPanelTokens = rememberPlayerPanelTokens()
             MenuOverlayView(
                 externalRoute = currentRoute,
                 title = titleForMenuRoute(
@@ -1130,6 +1157,48 @@ internal fun MediaPlayerScreen(
                     if (canGoBack) popMenuRoute() else dismissOverlay()
                 },
                 onDismiss = ::dismissOverlay,
+                trailingActions = when (currentRoute) {
+                    MenuRoute.SubtitleSearch -> {
+                        {
+                            MiuixIconButton(
+                                modifier = Modifier.testTag("btn_online_subtitle_settings"),
+                                onClick = { navigateToMenuRoute(MenuRoute.SubtitleSearchSettings) },
+                            ) {
+                                MiuixIcon(
+                                    imageVector = AppIcons.Settings,
+                                    contentDescription = stringResource(coreUiR.string.online_subtitle_search_settings),
+                                    tint = menuPanelTokens.contentColor,
+                                )
+                            }
+                        }
+                    }
+                    MenuRoute.VideoFilters -> {
+                        {
+                            MiuixIconButton(
+                                modifier = Modifier.testTag("btn_save_video_filter_preset"),
+                                onClick = { isSaveFilterPresetDialogVisible = true },
+                            ) {
+                                MiuixIcon(
+                                    imageVector = AppIcons.Save,
+                                    contentDescription = stringResource(coreUiR.string.save_video_filter_preset),
+                                    tint = menuPanelTokens.contentColor,
+                                )
+                            }
+                            MiuixIconButton(
+                                modifier = Modifier.testTag("btn_video_filter_presets"),
+                                onClick = { navigateToMenuRoute(MenuRoute.VideoFilterPresets) },
+                            ) {
+                                MiuixIcon(
+                                    imageVector = AppIcons.ColorFilter,
+                                    contentDescription = stringResource(coreUiR.string.video_filter_presets),
+                                    tint = menuPanelTokens.contentColor,
+                                )
+                            }
+                        }
+                    }
+
+                    else -> null
+                },
             ) { route ->
                 when (route) {
                     MenuRoute.Root -> MenuRootContent(
@@ -1180,10 +1249,34 @@ internal fun MediaPlayerScreen(
                         player = player,
                         onSelectSubtitleClick = onSelectSubtitleClick,
                         onAddOnlineSubtitleClick = onAddOnlineSubtitleClick,
+                        onRemoveSubtitleClick = onRemoveSubtitleClick,
+                        onShowSubtitleSearch = { navigateToMenuRoute(MenuRoute.SubtitleSearch) },
                         preferences = activePlayerPreferences,
                         onPreferencesChange = ::updateSubtitleStyle,
-                        onEvent = viewModel::onSubtitleOptionEvent,
                         onDismiss = ::dismissOverlay,
+                    )
+
+                    MenuRoute.SubtitleSearch -> OnlineSubtitleSearchContent(
+                        state = onlineSubtitleSearch,
+                        onQueryChange = viewModel::onOnlineSubtitleQueryChange,
+                        onSearch = viewModel::onSearchOnlineSubtitles,
+                        onSelectResult = viewModel::onDownloadOnlineSubtitle,
+                        onCancelDownload = viewModel::onCancelOnlineSubtitleDownload,
+                        onShowSubtitleTracks = { navigateToMenuRoute(MenuRoute.Subtitle) },
+                    )
+
+                    MenuRoute.SubtitleSearchLanguage -> OnlineSubtitleLanguageContent(
+                        selected = onlineSubtitleSearch.preferences.languageFilter,
+                        onSelect = {
+                            viewModel.onOnlineSubtitleLanguageFilterChange(it)
+                            popMenuRoute()
+                        },
+                    )
+
+                    MenuRoute.SubtitleSearchSettings -> OnlineSubtitleSearchSettingsContent(
+                        preferences = onlineSubtitleSearch.preferences,
+                        onShowLanguageFilter = { navigateToMenuRoute(MenuRoute.SubtitleSearchLanguage) },
+                        onProviderToggle = viewModel::onOnlineSubtitleProviderToggle,
                     )
 
                     MenuRoute.PlaybackSpeed -> PlaybackSpeedSelectorContent(player = player)
@@ -1201,12 +1294,50 @@ internal fun MediaPlayerScreen(
                     MenuRoute.VideoFilters -> VideoFiltersPanel(
                         modifier = Modifier.fillMaxSize(),
                         preferences = playerPreferences,
-                        onDismissRequest = ::closeVideoFiltersOverlay,
-                        onPreviewPreferences = { previewPreferences ->
-                            (player as? androidx.media3.session.MediaController)?.previewVideoFilters(previewPreferences)
-                        },
-                        onConfirmPreferences = ::confirmVideoFilters,
+                        onPreferencesChange = ::updateVideoFilters,
                     )
+                    MenuRoute.VideoFilterPresets -> Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 24.dp)
+                            .padding(bottom = 24.dp),
+                    ) {
+                        VideoFilterPresetListContent(
+                            preferences = playerPreferences,
+                            onApplyPreset = viewModel::applyVideoFilterPreset,
+                            onDeletePreset = viewModel::deleteVideoFilterPreset,
+                        )
+                    }
+
+                    MenuRoute.AudioEqualizer -> AudioEqualizerPanel(
+                        modifier = Modifier.fillMaxSize(),
+                        preferences = playerPreferences,
+                        onEnabledChange = viewModel::setAudioEqualizerEnabled,
+                        onBandLevelChange = viewModel::updateAudioEqualizerBand,
+                        onShowPresets = { navigateToMenuRoute(MenuRoute.AudioEqualizerPresets) },
+                        onSavePreset = { isSaveEqualizerPresetDialogVisible = true },
+                    )
+                    MenuRoute.AudioEqualizerPresets -> Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 24.dp)
+                            .padding(bottom = 24.dp),
+                    ) {
+                        AudioEqualizerPresetListContent(
+                            preferences = playerPreferences,
+                            onApplyBuiltInPreset = { preset ->
+                                viewModel.applyAudioEqualizerBuiltInPreset(preset)
+                                popMenuRoute()
+                            },
+                            onApplyPreset = { preset ->
+                                viewModel.applyAudioEqualizerPreset(preset)
+                                popMenuRoute()
+                            },
+                            onDeletePreset = viewModel::deleteAudioEqualizerPreset,
+                        )
+                    }
 
                     MenuRoute.VideoInfo -> VideoInfoContent(
                         player = player,
@@ -1265,17 +1396,19 @@ internal fun MediaPlayerScreen(
     }
 
     errorState.error?.let { error ->
+        // 只有单个媒体项时不提供播放下一个，退出按钮独占整行
+        val hasNextMediaItem = player.hasNextMediaItem()
         AppDialog(
             onDismissRequest = { },
             title = stringResource(coreUiR.string.error_playing_video),
             content = {
-                MiuixText(text = error.message ?: stringResource(coreUiR.string.unknown_error))
+                MiuixText(text = stringResource(error.toMessageResId()))
             },
-            confirmButton = {
-                if (player.hasNextMediaItem()) {
+            confirmButton = if (hasNextMediaItem) {
+                {
                     MiuixTextButton(
                         modifier = Modifier.testTag("btn_error_play_next"),
-                        text = stringResource(coreUiR.string.play_next_video),
+                        text = stringResource(coreUiR.string.play_next),
                         colors = MiuixButtonDefaults.textButtonColorsPrimary(),
                         onClick = {
                             errorState.dismiss()
@@ -1284,6 +1417,8 @@ internal fun MediaPlayerScreen(
                         },
                     )
                 }
+            } else {
+                null
             },
             dismissButton = {
                 MiuixTextButton(
@@ -1295,6 +1430,38 @@ internal fun MediaPlayerScreen(
                     },
                 )
             },
+        )
+    }
+
+    if (isSaveEqualizerPresetDialogVisible) {
+        SavePresetNameDialog(
+            title = stringResource(coreUiR.string.save_current_as_audio_equalizer_preset),
+            presetNameLabel = stringResource(coreUiR.string.audio_equalizer_preset_name),
+            dialogTestTag = "dialog_save_audio_equalizer_preset",
+            inputTestTag = "input_equalizer_preset_name",
+            confirmTestTag = "btn_save_equalizer_preset",
+            onDismissRequest = { isSaveEqualizerPresetDialogVisible = false },
+            onSavePreset = { name ->
+                isSaveEqualizerPresetDialogVisible = false
+                viewModel.saveAudioEqualizerPreset(name)
+            },
+            shouldKeepSystemBarsHidden = true,
+        )
+    }
+
+    if (isSaveFilterPresetDialogVisible) {
+        SavePresetNameDialog(
+            title = stringResource(coreUiR.string.save_current_as_video_filter_preset),
+            presetNameLabel = stringResource(coreUiR.string.video_filter_preset_name),
+            dialogTestTag = "dialog_save_video_filter_preset",
+            inputTestTag = "input_filter_preset_name",
+            confirmTestTag = "btn_save_filter_preset",
+            onDismissRequest = { isSaveFilterPresetDialogVisible = false },
+            onSavePreset = { name ->
+                isSaveFilterPresetDialogVisible = false
+                viewModel.saveVideoFilterPreset(name)
+            },
+            shouldKeepSystemBarsHidden = true,
         )
     }
 
@@ -1349,10 +1516,16 @@ private fun titleForMenuRoute(
     MenuRoute.MirrorVideo -> stringResource(coreUiR.string.mirror_video)
     MenuRoute.Audio -> stringResource(coreUiR.string.select_audio_track)
     MenuRoute.Subtitle -> stringResource(coreUiR.string.select_subtitle_track)
+    MenuRoute.SubtitleSearch -> stringResource(coreUiR.string.online_subtitle_search)
+    MenuRoute.SubtitleSearchSettings -> stringResource(coreUiR.string.online_subtitle_search_settings)
+    MenuRoute.SubtitleSearchLanguage -> stringResource(coreUiR.string.online_subtitle_search_language)
     MenuRoute.PlaybackSpeed -> stringResource(coreUiR.string.select_playback_speed)
     MenuRoute.VideoContentScale -> stringResource(coreUiR.string.video_zoom)
     MenuRoute.VideoInfo -> stringResource(coreUiR.string.video_info)
     MenuRoute.VideoFilters -> stringResource(coreUiR.string.video_filters)
+    MenuRoute.VideoFilterPresets -> stringResource(coreUiR.string.video_filter_presets)
+    MenuRoute.AudioEqualizer -> stringResource(coreUiR.string.audio_equalizer)
+    MenuRoute.AudioEqualizerPresets -> stringResource(coreUiR.string.audio_equalizer_presets)
     MenuRoute.Playlist -> stringResource(coreUiR.string.now_playing_with_count, playlistItemCount)
     MenuRoute.SleepTimer -> stringResource(coreUiR.string.sleep_timer)
     MenuRoute.Decoder -> stringResource(coreUiR.string.decoder_priority)

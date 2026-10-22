@@ -25,6 +25,7 @@ import androidx.activity.result.contract.ActivityResultContracts.RequestPermissi
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -93,17 +94,17 @@ import one.only.player.feature.player.extensions.isCurrentMediaItemLast
 import one.only.player.feature.player.extensions.registerForSuspendActivityResult
 import one.only.player.feature.player.extensions.setExtras
 import one.only.player.feature.player.extensions.toActivityOrientation
+import one.only.player.feature.player.extensions.toOnlineSubtitleMessageResId
 import one.only.player.feature.player.extensions.uriToSubtitleConfiguration
 import one.only.player.feature.player.service.PlayerService
 import one.only.player.feature.player.service.addSubtitleTrack
 import one.only.player.feature.player.service.hideCustomPictureInPicture
+import one.only.player.feature.player.service.removeSubtitleTrack
 import one.only.player.feature.player.service.showCustomPictureInPicture
 import one.only.player.feature.player.service.stopPlayerSession
+import one.only.player.feature.player.state.OnlineSubtitleEvent
 import one.only.player.feature.player.subtitle.EmptyOnlineSubtitleException
-import one.only.player.feature.player.subtitle.InvalidOnlineSubtitleExtensionException
-import one.only.player.feature.player.subtitle.InvalidOnlineSubtitleSchemeException
-import one.only.player.feature.player.subtitle.InvalidOnlineSubtitleUrlException
-import one.only.player.feature.player.subtitle.OnlineSubtitleDownloadFailedException
+import one.only.player.feature.player.subtitle.InvalidOnlineSubtitleException
 import one.only.player.feature.player.subtitle.OnlineSubtitleRepository
 import one.only.player.feature.player.subtitle.OnlineSubtitleTooLargeException
 import one.only.player.feature.player.utils.PlayerApi
@@ -303,6 +304,18 @@ open class PlayerActivity : AppCompatActivity() {
                 }
             }
 
+            LaunchedEffect(player) {
+                val activePlayer = player ?: return@LaunchedEffect
+                viewModel.onlineSubtitleEvents.collect { event ->
+                    if (activePlayer.currentMediaItem?.mediaId != event.mediaId) return@collect
+                    val messageResId = when (event) {
+                        is OnlineSubtitleEvent.Saved -> attachOnlineSubtitle(event.uri, event.mediaId)
+                        is OnlineSubtitleEvent.Failed -> event.cause.toOnlineSubtitleMessageResId()
+                    }
+                    showToast(messageResId)
+                }
+            }
+
             OnlyPlayerTheme(
                 shouldUseDarkTheme = when (uiState.applicationPreferences.themeConfig) {
                     ThemeConfig.SYSTEM -> isSystemInDarkTheme()
@@ -318,10 +331,10 @@ open class PlayerActivity : AppCompatActivity() {
                     player = player,
                     viewModel = viewModel,
                     playerPreferences = uiState.playerPreferences ?: return@OnlyPlayerTheme,
-                    isAmbienceModeEnabled = uiState.isAmbienceModeEnabled,
                     externalSubtitleFontSource = uiState.externalSubtitleFontSource,
                     onSelectSubtitleClick = {
                         lifecycleScope.launch {
+                            val mediaId = player?.currentMediaItem?.mediaId ?: return@launch
                             val uri = subtitleFileSuspendLauncher.launch(
                                 OpenDocumentWithInitialUri.Input(
                                     mimeTypes = SUBTITLE_DOCUMENT_MIME_TYPES,
@@ -338,10 +351,11 @@ open class PlayerActivity : AppCompatActivity() {
                             }
                             contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             maybeInitControllerFuture()
-                            controllerFuture?.await()?.addSubtitleTrack(uri)
+                            controllerFuture?.await()?.addSubtitleTrack(uri, mediaId)?.await()
                         }
                     },
                     onAddOnlineSubtitleClick = ::addOnlineSubtitle,
+                    onRemoveSubtitleClick = ::removeAddedSubtitle,
                     onBackClick = { finishAndStopPlayerSession() },
                     onPlayInBackgroundClick = {
                         shouldPlayInBackground = true
@@ -382,7 +396,7 @@ open class PlayerActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         lifecycleScope.launch(Dispatchers.IO) {
-            onlineSubtitleRepository.deleteExpiredSubtitles()
+            onlineSubtitleRepository.migrateCachedSubtitles()
         }
         lifecycleScope.launch {
             if (!ensureMediaPermission()) return@launch
@@ -452,33 +466,60 @@ open class PlayerActivity : AppCompatActivity() {
         lifecycleScope.launch {
             Logger.debug(TAG, "Add online subtitle requested: ${subtitleUrl.toLogSummary()}")
             val messageResId = try {
+                maybeInitControllerFuture()
+                val controller = controllerFuture?.await() ?: error("MediaController is unavailable")
+                val mediaId = controller.currentMediaItem?.mediaId ?: return@launch
                 val downloadedSubtitle = withContext(Dispatchers.IO) {
                     onlineSubtitleRepository.downloadSubtitle(subtitleUrl)
                 }
-                maybeInitControllerFuture()
-                val controller = controllerFuture?.await() ?: error("MediaController is unavailable")
-                controller.addSubtitleTrack(downloadedSubtitle.uri)
-                Logger.debug(TAG, "Add online subtitle command sent: uri=${downloadedSubtitle.uriString.toPrivateLogSummary()}")
-                one.only.player.core.ui.R.string.online_subtitle_added
+                attachOnlineSubtitle(downloadedSubtitle.uri, mediaId)
             } catch (exception: CancellationException) {
                 throw exception
-            } catch (exception: InvalidOnlineSubtitleSchemeException) {
-                one.only.player.core.ui.R.string.online_subtitle_unsupported_url
-            } catch (exception: InvalidOnlineSubtitleUrlException) {
-                one.only.player.core.ui.R.string.online_subtitle_unsupported_url
-            } catch (exception: InvalidOnlineSubtitleExtensionException) {
+            } catch (exception: InvalidOnlineSubtitleException) {
                 one.only.player.core.ui.R.string.online_subtitle_unsupported_url
             } catch (exception: OnlineSubtitleTooLargeException) {
                 one.only.player.core.ui.R.string.online_subtitle_too_large
             } catch (exception: EmptyOnlineSubtitleException) {
                 one.only.player.core.ui.R.string.online_subtitle_empty
-            } catch (exception: OnlineSubtitleDownloadFailedException) {
-                one.only.player.core.ui.R.string.online_subtitle_download_failed
             } catch (exception: Exception) {
                 Logger.error(TAG, "Failed to add online subtitle", exception)
                 one.only.player.core.ui.R.string.online_subtitle_download_failed
             }
             showToast(messageResId)
+        }
+    }
+
+    private suspend fun attachOnlineSubtitle(
+        uri: Uri,
+        mediaId: String,
+    ): Int = try {
+        maybeInitControllerFuture()
+        val controller = controllerFuture?.await() ?: error("MediaController is unavailable")
+        val result = controller.addSubtitleTrack(uri, mediaId).await()
+        check(result.resultCode == androidx.media3.session.SessionResult.RESULT_SUCCESS)
+        one.only.player.core.ui.R.string.online_subtitle_added
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (exception: Exception) {
+        Logger.error(TAG, "Failed to attach searched subtitle", exception)
+        one.only.player.core.ui.R.string.online_subtitle_download_failed
+    }
+
+    private fun removeAddedSubtitle(subtitleId: String) {
+        lifecycleScope.launch {
+            try {
+                maybeInitControllerFuture()
+                val controller = controllerFuture?.await() ?: return@launch
+                val mediaId = controller.currentMediaItem?.mediaId ?: return@launch
+                val result = controller.removeSubtitleTrack(subtitleId, mediaId).await()
+                check(result.resultCode == androidx.media3.session.SessionResult.RESULT_SUCCESS)
+                showToast(one.only.player.core.ui.R.string.subtitle_removed)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                Logger.error(TAG, "Failed to remove external subtitle", exception)
+                showToast(one.only.player.core.ui.R.string.subtitle_remove_failed)
+            }
         }
     }
 

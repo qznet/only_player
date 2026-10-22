@@ -11,6 +11,7 @@ import one.only.player.core.database.dao.MediumStateDao
 import one.only.player.core.database.dao.PlaybackMarkDao
 import one.only.player.core.database.dao.PlaylistDao
 import one.only.player.core.database.dao.RemoteServerDao
+import one.only.player.core.database.dao.SubtitleCalibrationDao
 import one.only.player.core.database.entities.AudioStreamInfoEntity
 import one.only.player.core.database.entities.DirectoryEntity
 import one.only.player.core.database.entities.FavoriteItemEntity
@@ -20,6 +21,7 @@ import one.only.player.core.database.entities.PlaybackMarkEntity
 import one.only.player.core.database.entities.PlaylistEntity
 import one.only.player.core.database.entities.PlaylistItemEntity
 import one.only.player.core.database.entities.RemoteServerEntity
+import one.only.player.core.database.entities.SubtitleCalibrationEntity
 import one.only.player.core.database.entities.SubtitleStreamInfoEntity
 import one.only.player.core.database.entities.VideoStreamInfoEntity
 
@@ -36,8 +38,9 @@ import one.only.player.core.database.entities.VideoStreamInfoEntity
         PlaybackMarkEntity::class,
         PlaylistEntity::class,
         PlaylistItemEntity::class,
+        SubtitleCalibrationEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class MediaDatabase : RoomDatabase() {
@@ -55,6 +58,8 @@ abstract class MediaDatabase : RoomDatabase() {
     abstract fun playbackMarkDao(): PlaybackMarkDao
 
     abstract fun playlistDao(): PlaylistDao
+
+    abstract fun subtitleCalibrationDao(): SubtitleCalibrationDao
 
     companion object {
         const val DATABASE_NAME = "media_db"
@@ -364,6 +369,37 @@ abstract class MediaDatabase : RoomDatabase() {
                 db.execSQL("DROP TABLE `directories`")
                 db.execSQL("ALTER TABLE `directories_new` RENAME TO `directories`")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_directories_parent_path` ON `directories` (`parent_path`)")
+            }
+        }
+
+        // 旧校准值只由原选中轨道继承一次，避免污染其他字幕或覆盖重置结果
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `subtitle_calibration` (
+                        `media_uri` TEXT NOT NULL,
+                        `subtitle_key` TEXT NOT NULL,
+                        `delay_ms` INTEGER NOT NULL,
+                        `speed` REAL NOT NULL,
+                        `updated_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`media_uri`, `subtitle_key`),
+                        FOREIGN KEY(`media_uri`) REFERENCES `media_state`(`uri`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """,
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_subtitle_calibration_media_uri` ON `subtitle_calibration` (`media_uri`)",
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO subtitle_calibration (media_uri, subtitle_key, delay_ms, speed, updated_at)
+                    SELECT uri,
+                        CASE WHEN subtitle_track_index >= 0 THEN 'legacy:' || subtitle_track_index ELSE 'legacy' END,
+                        subtitle_delay, subtitle_speed, 0
+                    FROM media_state WHERE subtitle_delay != 0 OR subtitle_speed != 1
+                    """,
+                )
             }
         }
     }

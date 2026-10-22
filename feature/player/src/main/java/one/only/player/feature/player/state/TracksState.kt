@@ -11,6 +11,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.listen
 import androidx.media3.common.util.UnstableApi
+import one.only.player.feature.player.extensions.addedSubtitleIds
 import one.only.player.feature.player.extensions.switchTrack
 
 @UnstableApi
@@ -19,8 +20,8 @@ fun rememberTracksState(
     player: Player,
     trackType: @C.TrackType Int,
 ): TracksState {
-    val tracksState = remember { TracksState(player, trackType) }
-    LaunchedEffect(player) { tracksState.observe() }
+    val tracksState = remember(player, trackType) { TracksState(player, trackType) }
+    LaunchedEffect(tracksState) { tracksState.observe() }
     return tracksState
 }
 
@@ -31,6 +32,9 @@ class TracksState(
     var tracks: List<Tracks.Group> by mutableStateOf(emptyList())
         private set
 
+    var addedSubtitleIds: List<String> by mutableStateOf(emptyList())
+        private set
+
     fun switchTrack(index: Int) {
         player.switchTrack(trackType, index)
     }
@@ -39,7 +43,13 @@ class TracksState(
         updateTracks()
 
         player.listen { events ->
-            if (events.contains(Player.EVENT_TRACKS_CHANGED)) {
+            if (events.containsAny(
+                    Player.EVENT_TRACKS_CHANGED,
+                    Player.EVENT_TIMELINE_CHANGED,
+                    Player.EVENT_MEDIA_ITEM_TRANSITION,
+                    Player.EVENT_MEDIA_METADATA_CHANGED,
+                )
+            ) {
                 updateTracks()
             }
         }
@@ -47,5 +57,6 @@ class TracksState(
 
     private fun updateTracks() {
         tracks = player.currentTracks.groups.filter { it.type == trackType && it.isSupported }
+        addedSubtitleIds = player.currentMediaItem?.mediaMetadata?.addedSubtitleIds.orEmpty()
     }
 }

@@ -9,12 +9,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.window.WindowDialog
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun AppDialog(
     onDismissRequest: () -> Unit,
@@ -30,6 +34,7 @@ fun AppDialog(
     WindowDialog(
         show = true,
         modifier = modifier
+            .semantics { testTagsAsResourceId = true }
             .widthIn(max = configuration.screenWidthDp.dp - AppDialogDefaults.dialogMargin * 2),
         title = title,
         onDismissRequest = onDismissRequest,

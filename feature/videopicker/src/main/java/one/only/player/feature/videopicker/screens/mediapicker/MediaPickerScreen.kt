@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
 import one.only.player.core.common.Logger
 import one.only.player.core.common.Utils
 import one.only.player.core.common.extensions.canonicalPathOrSelf
@@ -62,6 +63,7 @@ import one.only.player.core.model.Folder
 import one.only.player.core.model.MediaLayoutMode
 import one.only.player.core.model.MediaViewMode
 import one.only.player.core.model.PlayerPreferences
+import one.only.player.core.model.StoragePath
 import one.only.player.core.model.Video
 import one.only.player.core.ui.R
 import one.only.player.core.ui.base.DataState
@@ -215,6 +217,11 @@ internal fun MediaPickerScreen(
     var shouldShowPathPanel by rememberSaveable { mutableStateOf(false) }
 
     val isLibraryMode = uiState.screenMode == MediaPickerScreenMode.LIBRARY
+    val layoutDirectoryPath = if (isLibraryMode) {
+        uiState.folderPath ?: (uiState.mediaDataState as? DataState.Success)?.value?.path?.takeUnless { it == "/" }
+    } else {
+        null
+    }
     val isMoveMode = uiState.moveSelection != null && isLibraryMode
     val pathRootLabel = stringResource(R.string.tab_home)
     val storageRootLabels = rememberStorageRootLabels()
@@ -547,18 +554,32 @@ internal fun MediaPickerScreen(
                         launchPermissionRequest = { permissionState.launchPermissionRequest() },
                     ) {
                         val activeDataState = if (isMoveMode) uiState.moveTargetDataState else uiState.mediaDataState
-                        val shouldShowRefreshIndicator = uiState.isRefreshing
+                        var shouldShowRefreshIndicator by remember(uiState.isRefreshing) {
+                            mutableStateOf(uiState.isRefreshing)
+                        }
+                        LaunchedEffect(uiState.isRefreshing) {
+                            if (!uiState.isRefreshing) return@LaunchedEffect
+                            // 隐藏指示器后扫描继续执行，实际刷新状态仍用于阻止重复扫描。
+                            delay(REFRESH_INDICATOR_TIMEOUT_MILLIS)
+                            shouldShowRefreshIndicator = false
+                        }
                         val updatedScaffoldPadding = scaffoldPadding.copy(
                             top = if (shouldUseLargeTopBar) PageContentTopPadding else 0.dp,
                             start = 0.dp,
                         ).withBottomFallback()
                         val refreshTexts = rememberPullToRefreshTexts()
                         PullToRefresh(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .testTag("media_picker_pull_refresh"),
                             isRefreshing = shouldShowRefreshIndicator,
                             onRefresh = { onEvent(MediaPickerUiEvent.Refresh) },
                             topAppBarScrollBehavior = scrollBehavior.takeIf { shouldUseLargeTopBar },
-                            refreshTexts = refreshTexts,
+                            refreshTexts = if (uiState.isRefreshing) {
+                                refreshTexts.dropLast(1) + refreshTexts[2]
+                            } else {
+                                refreshTexts
+                            },
                         ) {
                             when (activeDataState) {
                                 DataState.Loading -> Box(modifier = Modifier.fillMaxSize()) {
@@ -601,6 +622,7 @@ internal fun MediaPickerScreen(
                                         MediaView(
                                             rootFolder = rootFolder,
                                             preferences = uiState.preferences,
+                                            layoutDirectory = layoutDirectoryPath?.let(StoragePath::of),
                                             onFolderClick = {
                                                 onEvent(MediaPickerUiEvent.CacheFolderSnapshot(it))
                                                 onFolderClick(it.path, uiState.screenMode)
@@ -741,6 +763,8 @@ internal fun MediaPickerScreen(
     if (shouldShowQuickSettingsDialog) {
         QuickSettingsDialog(
             applicationPreferences = uiState.preferences,
+            isRoot = uiState.folderPath == null,
+            directoryPath = layoutDirectoryPath,
             onDismiss = { shouldShowQuickSettingsDialog = false },
             updatePreferences = { onEvent(MediaPickerUiEvent.UpdateMenu(it)) },
         )
@@ -1158,6 +1182,7 @@ private fun resolveRestoreScrollIndex(
 }
 
 private const val TAG = "MediaPickerScreen"
+private const val REFRESH_INDICATOR_TIMEOUT_MILLIS = 1_500L
 
 private val Folder.folderHeaderOffset: Int
     get() = if (folderList.isNotEmpty()) 1 else 0
@@ -1447,7 +1472,7 @@ private fun MediaPickerScreenPreview(
                 ),
                 preferences = ApplicationPreferences().copy(
                     mediaViewMode = MediaViewMode.FOLDER_TREE,
-                    mediaLayoutMode = MediaLayoutMode.GRID,
+                    videoLayoutMode = MediaLayoutMode.GRID,
                 ),
             ),
         )

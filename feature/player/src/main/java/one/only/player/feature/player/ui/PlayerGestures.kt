@@ -71,7 +71,11 @@ fun PlayerGestures(
                                     ?: break
 
                                 pointerId = change.id
-                                if (!change.pressed) break
+                                if (!change.pressed) {
+                                    // 消费抬起事件，避免单击检测把松手识别为点击而切换控制界面
+                                    change.consume()
+                                    break
+                                }
 
                                 val dragAmount = change.positionChangeIgnoreConsumed().x
                                 if (dragAmount != 0f) {

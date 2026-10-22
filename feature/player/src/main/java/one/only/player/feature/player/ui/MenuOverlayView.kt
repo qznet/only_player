@@ -38,10 +38,16 @@ sealed interface MenuRoute {
     data object PlaybackSpeed : MenuRoute
     data object Audio : MenuRoute
     data object Subtitle : MenuRoute
+    data object SubtitleSearch : MenuRoute
+    data object SubtitleSearchSettings : MenuRoute
+    data object SubtitleSearchLanguage : MenuRoute
     data object Playlist : MenuRoute
     data object VideoContentScale : MenuRoute
     data object VideoInfo : MenuRoute
     data object VideoFilters : MenuRoute
+    data object VideoFilterPresets : MenuRoute
+    data object AudioEqualizer : MenuRoute
+    data object AudioEqualizerPresets : MenuRoute
     data object PlaybackMarks : MenuRoute
     data object Chapters : MenuRoute
 }
@@ -54,6 +60,7 @@ fun BoxScope.MenuOverlayView(
     onBack: () -> Unit,
     onDismiss: () -> Unit = {},
     panelState: FloatingPlayerPanelState = rememberFloatingPlayerPanelState(),
+    trailingActions: (@Composable () -> Unit)? = null,
     content: @Composable (MenuRoute) -> Unit,
 ) {
     val tokens = rememberPlayerPanelTokens()
@@ -76,6 +83,7 @@ fun BoxScope.MenuOverlayView(
     LaunchedEffect(displayedRoute) {
         focusRequester.requestFocus()
     }
+    val displayedTrailingActions = if (externalRoute != null) trailingActions else null
     FloatingPlayerPanel(
         shouldShow = externalRoute != null,
         title = displayedTitle,
@@ -83,6 +91,7 @@ fun BoxScope.MenuOverlayView(
         testTag = "panel_player_menu",
         onDismiss = onDismiss,
         focusRequester = focusRequester,
+        trailingActions = displayedTrailingActions,
         navigationIcon = if (displayedCanGoBack) {
             {
                 MiuixIconButton(

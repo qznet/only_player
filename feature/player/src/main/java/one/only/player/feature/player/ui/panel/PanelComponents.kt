@@ -53,6 +53,8 @@ fun PanelOptionRow(
     modifier: Modifier = Modifier,
     testTag: String? = null,
     isEnabled: Boolean = true,
+    description: String? = null,
+    maxTextLines: Int = if (description == null) 2 else 1,
 ) {
     val tokens = rememberPlayerPanelTokens()
     val shape = tokens.optionShape
@@ -82,14 +84,27 @@ fun PanelOptionRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        MiuixText(
-            text = text,
-            color = contentColor,
-            style = MiuixTheme.textStyles.body1,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
+        Column(
             modifier = Modifier.weight(1f),
-        )
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            MiuixText(
+                text = text,
+                color = contentColor,
+                style = MiuixTheme.textStyles.body1,
+                maxLines = maxTextLines,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (description != null) {
+                MiuixText(
+                    text = description,
+                    color = contentColor.copy(alpha = 0.7f),
+                    style = MiuixTheme.textStyles.body2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
         if (isSelected) {
             MiuixIcon(
                 imageVector = MiuixIcons.Basic.Check,

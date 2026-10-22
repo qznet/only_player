@@ -21,13 +21,17 @@ import kotlin.math.abs
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
 import one.only.player.feature.player.extensions.availableDurationMs
 import one.only.player.feature.player.extensions.canSeekCurrentMediaItem
 import one.only.player.feature.player.extensions.formatted
+import one.only.player.feature.player.extensions.isApproximateSeekEnabled
 import one.only.player.feature.player.extensions.requestSeekToRequestedPosition
 import one.only.player.feature.player.extensions.setIsScrubbingModeEnabled
+import one.only.player.feature.player.extensions.setIsSeekPreviewEnabled
 import one.only.player.feature.player.service.CustomCommands
 
 @UnstableApi
@@ -36,13 +40,15 @@ fun rememberSeekGestureState(
     player: Player,
     sensitivity: Float = 0.5f,
     isSeekGestureEnabled: Boolean,
+    isSeekPreviewFrameEnabled: Boolean = false,
 ): SeekGestureState {
     val coroutineScope = rememberCoroutineScope()
-    val seekGestureState = remember(player, sensitivity, isSeekGestureEnabled) {
+    val seekGestureState = remember(player, sensitivity, isSeekGestureEnabled, isSeekPreviewFrameEnabled) {
         SeekGestureState(
             player = player,
             sensitivity = sensitivity,
             isSeekGestureEnabled = isSeekGestureEnabled,
+            isSeekPreviewFrameEnabled = isSeekPreviewFrameEnabled,
             coroutineScope = coroutineScope,
         )
     }
@@ -60,6 +66,7 @@ fun rememberSeekGestureState(
 class SeekGestureState(
     private val player: Player,
     private val isSeekGestureEnabled: Boolean = true,
+    private val isSeekPreviewFrameEnabled: Boolean = false,
     private val sensitivity: Float = 0.5f,
     private val coroutineScope: CoroutineScope,
 ) : Player.Listener {
@@ -79,6 +86,8 @@ class SeekGestureState(
     private var seekMediaId: String? = null
     private var seekRequestId = 0L
     private var seekRequestJob: Job? = null
+    private var previewSeekJob: Job? = null
+    private var previewSeekTargets: Channel<Long>? = null
 
     fun onSeek(value: Long) {
         if (!player.canSeekCurrentMediaItem()) return
@@ -96,6 +105,7 @@ class SeekGestureState(
             minimumValue = 0 - seekStartPosition!!,
             maximumValue = duration - seekStartPosition!!,
         )
+        requestPreviewSeek(newPosition)
     }
 
     fun onSeekEnd() {
@@ -131,6 +141,7 @@ class SeekGestureState(
             minimumValue = 0 - seekStartPosition,
             maximumValue = duration - seekStartPosition,
         )
+        requestPreviewSeek(newPosition)
     }
 
     fun onDragEnd() {
@@ -179,6 +190,7 @@ class SeekGestureState(
         seekStartPosition = currentPosition
         pendingSeekPosition = currentPosition
         player.setIsScrubbingModeEnabled(true)
+        startPreviewSeek()
     }
 
     private fun finishSeek() {
@@ -188,6 +200,7 @@ class SeekGestureState(
         seekStartPosition = null
         seekAmount = null
         seekStartX = 0f
+        stopPreviewSeek()
         player.setIsScrubbingModeEnabled(false)
 
         if (currentPosition == pendingSeekPosition) {
@@ -227,10 +240,46 @@ class SeekGestureState(
         seekMediaId = null
     }
 
+    // 预览只在能快速定位的媒体上开启；approximate source 的 seek 会顺序读取，反而更卡
+    private fun canPreviewSeek(): Boolean {
+        if (!isSeekPreviewFrameEnabled) return false
+        return player.currentMediaItem?.mediaMetadata?.isApproximateSeekEnabled != true
+    }
+
+    private fun startPreviewSeek() {
+        stopPreviewSeek()
+        if (!canPreviewSeek()) return
+
+        // CONFLATED 只保留最新目标，拖动比解码快时自动丢弃中间位置，画面更新变慢但不会堆积，松手后仍精确落位
+        val targets = Channel<Long>(Channel.CONFLATED)
+        previewSeekTargets = targets
+        player.setIsSeekPreviewEnabled(true)
+        previewSeekJob = coroutineScope.launch {
+            for (target in targets) {
+                player.seekTo(target)
+                delay(PREVIEW_SEEK_INTERVAL_MS)
+            }
+        }
+    }
+
+    private fun requestPreviewSeek(positionMs: Long) {
+        previewSeekTargets?.trySend(positionMs)
+    }
+
+    private fun stopPreviewSeek() {
+        val hasPreviewSeek = previewSeekTargets != null
+        previewSeekTargets?.close()
+        previewSeekTargets = null
+        previewSeekJob?.cancel()
+        previewSeekJob = null
+        if (hasPreviewSeek) player.setIsSeekPreviewEnabled(false)
+    }
+
     private fun reset() {
         seekRequestId++
         seekRequestJob?.cancel()
         seekRequestJob = null
+        stopPreviewSeek()
         player.setIsScrubbingModeEnabled(false)
         isSeeking = false
         seekStartPosition = null
@@ -242,6 +291,7 @@ class SeekGestureState(
 
     private companion object {
         private const val SEEK_CONFIRMATION_TOLERANCE_MS = 1_000L
+        private const val PREVIEW_SEEK_INTERVAL_MS = 120L
     }
 }
 

@@ -37,7 +37,7 @@ class DebugCommandProvider : ContentProvider() {
             METHOD_PAGE_OPEN -> context.openDebugPage(arg)
             METHOD_SETTINGS_SET -> context.runSettingsCommand(method, arg, extras) { setSetting(context, arg, extras) }
             METHOD_SETTINGS_TOGGLE -> context.runSettingsCommand(method, arg, extras) { toggleSetting(arg) }
-            METHOD_SETTINGS_ACTION -> context.runSettingsCommand(method, arg, extras) { runSettingAction(context, arg) }
+            METHOD_SETTINGS_ACTION -> context.runSettingsCommand(method, arg, extras) { runSettingAction(context, arg, extras) }
             in CLOUD_SERVER_METHODS -> context.runCloudServerCommand(method.removePrefix("cloud.server."), arg, extras)
             in CLOUD_MEDIA_METHODS -> context.runCloudMediaCommand(method.removePrefix("cloud.media."), arg, extras)
             in CLOUD_QUICK_SETTINGS_METHODS -> context.runCloudQuickSettingsCommand(method.removePrefix("cloud.quick_settings."), arg, extras)

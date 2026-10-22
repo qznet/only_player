@@ -20,14 +20,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.buffer
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -35,6 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import one.only.player.core.common.Dispatcher
 import one.only.player.core.common.DispatcherType
 import one.only.player.core.common.Logger
@@ -99,28 +95,71 @@ class LocalMediaSynchronizer @Inject constructor(
             suppressAutomaticSyncAfterTargetedRefresh()
         }
 
+        val refreshStartMs = System.currentTimeMillis()
+        val lockAcquiredMs: Long
         syncMutex.withLock {
+            lockAcquiredMs = System.currentTimeMillis()
             val didScan = if (path != null) {
                 registerManualVideoPath(path)
                 mergePendingManualVideoPaths()
                 context.scanPaths(listOf(path))
             } else {
+                val mergeStartMs = System.currentTimeMillis()
                 mergePendingManualVideoPaths()
+                val pruneStartMs = System.currentTimeMillis()
                 pruneStaleManualVideoPaths()
+                val scanTargetsStartMs = System.currentTimeMillis()
                 val additionalScanTargets = buildRefreshScanTargets()
+                val registerStartMs = System.currentTimeMillis()
                 if (additionalScanTargets.isNotEmpty()) {
                     registerUnindexedPaths(additionalScanTargets)
                     scanPathsAsync(additionalScanTargets.map(StoragePath::value))
                 }
+                Logger.debug(
+                    TAG,
+                    "refresh stages lock=${lockAcquiredMs - refreshStartMs}ms merge=${pruneStartMs - mergeStartMs}ms " +
+                        "prune=${scanTargetsStartMs - pruneStartMs}ms scanTargets=${registerStartMs - scanTargetsStartMs}ms " +
+                        "register=${System.currentTimeMillis() - registerStartMs}ms targets=${additionalScanTargets.size}",
+                )
                 true
             }
 
+            val syncStartMs = System.currentTimeMillis()
             if (path != null) {
                 syncPathMedia(path)
             } else {
                 syncCurrentMedia()
             }
+            Logger.debug(
+                TAG,
+                "refresh done targeted=${path != null} sync=${System.currentTimeMillis() - syncStartMs}ms total=${System.currentTimeMillis() - refreshStartMs}ms",
+            )
             didScan
+        }
+    }
+
+    override suspend fun refreshMovedPaths(paths: List<StoragePath>) = withContext(dispatcher) {
+        val distinctPaths = paths.distinct()
+        if (distinctPaths.isEmpty()) return@withContext
+
+        suppressAutomaticSyncAfterTargetedRefresh()
+        val startTime = SystemClock.elapsedRealtime()
+        syncMutex.withLock {
+            mergePendingManualVideoPaths()
+            val preferences = appPreferencesDataSource.preferences.first()
+            val visiblePaths = if (preferences.shouldIgnoreNoMediaFiles) {
+                distinctPaths
+            } else {
+                distinctPaths.excludeNoMediaPaths()
+            }
+            registerUnindexedPaths(visiblePaths)
+            val didScan = context.scanPaths(distinctPaths.map(StoragePath::value))
+            distinctPaths.forEach { path -> syncPathMedia(path.value) }
+            pruneEmptyDirectories()
+            Logger.debug(
+                TAG,
+                "refreshMovedPaths count=${distinctPaths.size} scanned=$didScan elapsed=${SystemClock.elapsedRealtime() - startTime}ms",
+            )
         }
     }
 
@@ -228,9 +267,7 @@ class LocalMediaSynchronizer @Inject constructor(
                 .onEach(::syncAutomaticMediaSnapshot)
                 .launchIn(this)
 
-            observeMediaStoreChanges()
-                .onEach(::syncAutomaticMediaChange)
-                .launchIn(this)
+            consumeMediaStoreChanges()
         }
     }
 
@@ -256,22 +293,58 @@ class LocalMediaSynchronizer @Inject constructor(
         }
     }
 
-    private suspend fun syncAutomaticMediaChange(uri: Uri?) = withContext(dispatcher) {
+    private suspend fun consumeMediaStoreChanges() {
+        val changes = Channel<Uri?>(Channel.UNLIMITED)
+        val observer = object : ContentObserver(null) {
+            override fun onChange(isSelfChange: Boolean) {
+                changes.trySend(null)
+            }
+
+            override fun onChange(
+                isSelfChange: Boolean,
+                uri: Uri?,
+            ) {
+                changes.trySend(uri)
+            }
+        }
+        context.contentResolver.registerContentObserver(VIDEO_COLLECTION_URI, true, observer)
+        try {
+            while (true) {
+                syncAutomaticMediaChanges(changes.awaitChangeBatch())
+            }
+        } finally {
+            context.contentResolver.unregisterContentObserver(observer)
+            changes.close()
+        }
+    }
+
+    // 固定窗口合并重复通知；null 表示全库变更，不能与超时混淆。
+    private suspend fun Channel<Uri?>.awaitChangeBatch(): Set<Uri?> {
+        val batch = linkedSetOf(receive())
+        withTimeoutOrNull(MEDIA_CHANGE_BATCH_WINDOW_MILLIS) {
+            while (true) {
+                batch += receive()
+            }
+        }
+        return batch
+    }
+
+    private suspend fun syncAutomaticMediaChanges(uris: Set<Uri?>) = withContext(dispatcher) {
         syncMutex.withLock {
             if (shouldSkipAutomaticSyncAfterTargetedRefresh()) {
-                Logger.info(TAG, "Skipped automatic media change after targeted refresh")
+                Logger.debug(TAG, "Skipped automatic media change after targeted refresh count=${uris.size}")
                 return@withLock
             }
 
-            val mediaStoreId = uri
-                ?.takeIf { changedUri -> changedUri.isMediaStoreVideoItem() }
-                ?.lastPathSegment
-                ?.toLongOrNull()
-            if (mediaStoreId == null) {
+            val mediaStoreIds = uris.map { uri ->
+                uri?.takeIf { it.isMediaStoreVideoItem() }?.lastPathSegment?.toLongOrNull()
+            }
+            Logger.debug(TAG, "Automatic media change batch count=${uris.size} full=${null in mediaStoreIds}")
+            if (null in mediaStoreIds) {
                 syncCurrentMedia()
                 return@withLock
             }
-            syncMediaStoreItem(mediaStoreId)
+            mediaStoreIds.filterNotNull().distinct().forEach { syncMediaStoreItem(it) }
         }
     }
 
@@ -652,13 +725,20 @@ class LocalMediaSynchronizer @Inject constructor(
     private suspend fun buildRefreshScanTargets(): List<StoragePath> {
         if (!hasManageExternalStorageAccess()) return emptyList()
 
+        val queryStartTime = System.currentTimeMillis()
         val indexedPaths = getMediaVideo(selection = null, selectionArgs = null, sortOrder = null)
             .map(MediaVideo::storagePath)
             .toSet()
+        val queryElapsed = System.currentTimeMillis() - queryStartTime
         val scanFolderPaths = appPreferencesDataSource.preferences.first().scanFolders
+        val walkStartTime = System.currentTimeMillis()
         val targets = collectScanRoots(scanFolderPaths).flatMap { root ->
             root.collectVisibleUnindexedVideoPaths(indexedPaths)
         }.distinct()
+        Logger.debug(
+            TAG,
+            "buildRefreshScanTargets indexed=${indexedPaths.size} targets=${targets.size} queryElapsed=${queryElapsed}ms walkElapsed=${System.currentTimeMillis() - walkStartTime}ms",
+        )
 
         if (targets.isNotEmpty()) {
             Logger.info(TAG, "Refreshing ${targets.size} unindexed video files")
@@ -860,25 +940,6 @@ class LocalMediaSynchronizer @Inject constructor(
         Logger.debug(TAG, "scheduleMediaInfoSync media=${media.size} queued=${syncUris.size} elapsed=${System.currentTimeMillis() - startTime}ms")
     }
 
-    private fun observeMediaStoreChanges(): Flow<Uri?> = callbackFlow {
-        val observer = object : ContentObserver(null) {
-            override fun onChange(isSelfChange: Boolean) {
-                trySend(null)
-            }
-
-            override fun onChange(
-                isSelfChange: Boolean,
-                uri: Uri?,
-            ) {
-                trySend(uri)
-            }
-        }
-        context.contentResolver.registerContentObserver(VIDEO_COLLECTION_URI, true, observer)
-        awaitClose { context.contentResolver.unregisterContentObserver(observer) }
-    }
-        .buffer(Channel.UNLIMITED)
-        .flowOn(dispatcher)
-
     private fun Uri.isMediaStoreVideoItem(): Boolean {
         val collectionUri = VIDEO_COLLECTION_URI
         return scheme == collectionUri.scheme &&
@@ -1037,6 +1098,7 @@ class LocalMediaSynchronizer @Inject constructor(
         private const val NO_MEDIA_FILE_NAME = ".nomedia"
         private const val RECYCLE_BIN_EXTENSION = "optrash"
         private const val MILLIS_PER_SECOND = 1_000L
+        private const val MEDIA_CHANGE_BATCH_WINDOW_MILLIS = 500L
         private val KNOWN_VIDEO_EXTENSIONS = setOf(
             "3gp",
             "asf",

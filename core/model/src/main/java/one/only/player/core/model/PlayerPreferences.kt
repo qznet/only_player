@@ -16,18 +16,13 @@ data class PlayerPreferences(
     val playerVideoZoom: VideoContentScale = VideoContentScale.BEST_FIT,
     val defaultPlaybackSpeed: Float = 1.0f,
     val shouldApplyVideoFilters: Boolean = false,
-    val isVideoBrightnessFilterEnabled: Boolean = false,
     val videoBrightness: Float = DEFAULT_VIDEO_BRIGHTNESS,
-    val isVideoContrastFilterEnabled: Boolean = false,
     val videoContrast: Float = DEFAULT_VIDEO_CONTRAST,
-    val isVideoSaturationFilterEnabled: Boolean = false,
     val videoSaturation: Float = DEFAULT_VIDEO_SATURATION,
-    val isVideoHueFilterEnabled: Boolean = false,
     val videoHue: Float = DEFAULT_VIDEO_HUE,
-    val isVideoGammaFilterEnabled: Boolean = false,
     val videoGamma: Float = DEFAULT_VIDEO_GAMMA,
-    val isVideoSharpeningFilterEnabled: Boolean = false,
     val videoSharpening: Float = DEFAULT_VIDEO_SHARPENING,
+    val videoFilterPresets: List<VideoFilterPreset> = emptyList(),
     val shouldAutoPlay: Boolean = true,
     val shouldPauseAtEndOfQueue: Boolean = false,
     val shouldAutoEnterPip: Boolean = true,
@@ -41,6 +36,7 @@ data class PlayerPreferences(
     val isVolumeSwipeGestureEnabled: Boolean = true,
     val isBrightnessSwipeGestureEnabled: Boolean = true,
     val shouldUseSeekControls: Boolean = true,
+    val isSeekPreviewFrameEnabled: Boolean = false,
     val shouldUseZoomControls: Boolean = true,
     val isPanGestureEnabled: Boolean = true,
     val doubleTapGesture: DoubleTapGesture = DoubleTapGesture.BOTH,
@@ -54,6 +50,7 @@ data class PlayerPreferences(
     val brightnessGestureSensitivity: Float = DEFAULT_BRIGHTNESS_GESTURE_SENSITIVITY,
 
     // 播放器界面
+    val isAmbienceModeEnabled: Boolean = false,
     val controllerAutoHidePreset: ControllerAutoHidePreset = ControllerAutoHidePreset.CUSTOM,
     val controllerAutoHideTimeout: Int = DEFAULT_CONTROLLER_AUTO_HIDE_TIMEOUT,
     val shouldDimVideoWhenControlsVisible: Boolean = true,
@@ -72,11 +69,15 @@ data class PlayerPreferences(
     val maxInitialPlayerVolumePercentage: Int = DEFAULT_MAX_INITIAL_PLAYER_VOLUME_PERCENTAGE,
     val isVolumeNormalizationEnabled: Boolean = false,
     val isSpatialAudioEnabled: Boolean = true,
+    val shouldApplyAudioEqualizer: Boolean = false,
+    val audioEqualizerBandLevels: List<Int> = DEFAULT_AUDIO_EQUALIZER_BAND_LEVELS,
+    val audioEqualizerPresets: List<AudioEqualizerPreset> = emptyList(),
 
     // 字幕偏好
     val isSubtitleAutoLoadEnabled: Boolean = true,
     val shouldUseSystemCaptionStyle: Boolean = false,
     val preferredSubtitleLanguage: String = "",
+    val onlineSubtitleSearchPreferences: OnlineSubtitleSearchPreferences = OnlineSubtitleSearchPreferences(),
     val subtitleTextEncoding: String = "",
     val subtitleTextSize: Float = DEFAULT_SUBTITLE_TEXT_SIZE,
     val shouldShowSubtitleBackground: Boolean = false,
@@ -116,7 +117,6 @@ data class PlayerPreferences(
         const val MIN_VIDEO_GAMMA = 0.1f
         const val MAX_VIDEO_GAMMA = 3f
         const val DEFAULT_VIDEO_SHARPENING = 0f
-        const val DEFAULT_ACTIVE_VIDEO_SHARPENING = 0.5f
         const val MAX_VIDEO_SHARPENING = 1f
         const val MIN_LONG_PRESS_CONTROLS_SPEED = 0.2f
         const val MAX_LONG_PRESS_CONTROLS_SPEED = 4.0f
@@ -138,6 +138,10 @@ data class PlayerPreferences(
         const val MIN_SUBTITLE_SCALE = 0.5f
         const val MAX_SUBTITLE_SCALE = 3f
         const val SUBTITLE_SCALE_STEP = 0.05f
+        const val MIN_AUDIO_EQUALIZER_GAIN_DB = -12
+        const val MAX_AUDIO_EQUALIZER_GAIN_DB = 12
+        const val DEFAULT_AUDIO_EQUALIZER_GAIN_DB = 0
+        val DEFAULT_AUDIO_EQUALIZER_BAND_LEVELS: List<Int> = List(AudioEqualizerBand.entries.size) { DEFAULT_AUDIO_EQUALIZER_GAIN_DB }
         const val DEFAULT_CONTROLLER_AUTO_HIDE_TIMEOUT = 4
         const val DEFAULT_PLAYER_VOLUME_PERCENTAGE = 100
         const val MAX_PLAYER_VOLUME_PERCENTAGE = 200
@@ -162,18 +166,13 @@ fun PlayerPreferences.withSubtitleStyleFrom(preferences: PlayerPreferences): Pla
 
 fun PlayerPreferences.withVideoFiltersFrom(preferences: PlayerPreferences): PlayerPreferences = copy(
     shouldApplyVideoFilters = preferences.shouldApplyVideoFilters,
-    isVideoBrightnessFilterEnabled = preferences.isVideoBrightnessFilterEnabled,
     videoBrightness = preferences.videoBrightness,
-    isVideoContrastFilterEnabled = preferences.isVideoContrastFilterEnabled,
     videoContrast = preferences.videoContrast,
-    isVideoSaturationFilterEnabled = preferences.isVideoSaturationFilterEnabled,
     videoSaturation = preferences.videoSaturation,
-    isVideoHueFilterEnabled = preferences.isVideoHueFilterEnabled,
     videoHue = preferences.videoHue,
-    isVideoGammaFilterEnabled = preferences.isVideoGammaFilterEnabled,
     videoGamma = preferences.videoGamma,
-    isVideoSharpeningFilterEnabled = preferences.isVideoSharpeningFilterEnabled,
     videoSharpening = preferences.videoSharpening,
+    videoFilterPresets = preferences.videoFilterPresets,
 )
 
 fun PlayerPreferences.withVideoFilterAdjustment(
@@ -181,18 +180,6 @@ fun PlayerPreferences.withVideoFilterAdjustment(
 ): PlayerPreferences {
     if (!shouldApplyVideoFilters) return this
     return transform(this)
-}
-
-fun PlayerPreferences.withVideoSharpeningFilterEnabled(isEnabled: Boolean): PlayerPreferences {
-    if (!shouldApplyVideoFilters) return this
-    return copy(
-        isVideoSharpeningFilterEnabled = isEnabled,
-        videoSharpening = if (isEnabled && videoSharpening == PlayerPreferences.DEFAULT_VIDEO_SHARPENING) {
-            PlayerPreferences.DEFAULT_ACTIVE_VIDEO_SHARPENING
-        } else {
-            videoSharpening
-        },
-    )
 }
 
 fun PlayerPreferences.withVideoSharpening(value: Float): PlayerPreferences {
@@ -203,6 +190,54 @@ fun PlayerPreferences.withVideoSharpening(value: Float): PlayerPreferences {
     )
     return copy(videoSharpening = normalizedValue)
 }
+
+fun PlayerPreferences.withVideoFilterPresetApplied(preset: VideoFilterPreset): PlayerPreferences = copy(
+    shouldApplyVideoFilters = true,
+    videoBrightness = preset.brightness.coerceIn(
+        PlayerPreferences.MIN_VIDEO_BRIGHTNESS,
+        PlayerPreferences.MAX_VIDEO_BRIGHTNESS,
+    ),
+    videoContrast = preset.contrast.coerceIn(
+        PlayerPreferences.MIN_VIDEO_CONTRAST,
+        PlayerPreferences.MAX_VIDEO_CONTRAST,
+    ),
+    videoSaturation = preset.saturation.coerceIn(
+        PlayerPreferences.MIN_VIDEO_SATURATION,
+        PlayerPreferences.MAX_VIDEO_SATURATION,
+    ),
+    videoHue = preset.hue.coerceIn(
+        PlayerPreferences.MIN_VIDEO_HUE,
+        PlayerPreferences.MAX_VIDEO_HUE,
+    ),
+    videoGamma = preset.gamma.coerceIn(
+        PlayerPreferences.MIN_VIDEO_GAMMA,
+        PlayerPreferences.MAX_VIDEO_GAMMA,
+    ),
+    videoSharpening = preset.sharpening.coerceIn(
+        PlayerPreferences.DEFAULT_VIDEO_SHARPENING,
+        PlayerPreferences.MAX_VIDEO_SHARPENING,
+    ),
+)
+
+fun PlayerPreferences.toVideoFilterPreset(name: String, id: Long): VideoFilterPreset = VideoFilterPreset(
+    id = id,
+    name = name,
+    brightness = videoBrightness,
+    contrast = videoContrast,
+    saturation = videoSaturation,
+    hue = videoHue,
+    gamma = videoGamma,
+    sharpening = videoSharpening,
+)
+
+fun PlayerPreferences.withVideoFilterPresetSaved(preset: VideoFilterPreset): PlayerPreferences = copy(
+    videoFilterPresets = videoFilterPresets
+        .filterNot { it.id == preset.id || it.name == preset.name } + preset,
+)
+
+fun PlayerPreferences.withVideoFilterPresetDeleted(preset: VideoFilterPreset): PlayerPreferences = copy(
+    videoFilterPresets = videoFilterPresets.filterNot { it.id == preset.id },
+)
 
 fun PlayerPreferences.playerControls(slot: PlayerControlSlot): List<PlayerControl> = controlsArrangement.controlsIn(slot)
 
@@ -229,6 +264,7 @@ enum class PlayerControl {
     PLAYLIST,
     PLAYBACK_SPEED,
     AUDIO,
+    AUDIO_EQUALIZER,
     SUBTITLE,
     PREVIOUS,
     PLAY_PAUSE,

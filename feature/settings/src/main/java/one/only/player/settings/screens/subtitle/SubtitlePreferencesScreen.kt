@@ -29,10 +29,13 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.nio.charset.Charset
 import one.only.player.core.model.Font
+import one.only.player.core.model.OnlineSubtitleLanguageFilter
+import one.only.player.core.model.OnlineSubtitleProvider
 import one.only.player.core.ui.R
 import one.only.player.core.ui.components.AppScaffold
 import one.only.player.core.ui.components.AppTopAppBar
 import one.only.player.core.ui.components.ClickablePreferenceItem
+import one.only.player.core.ui.components.ListSectionTitle
 import one.only.player.core.ui.components.PageContentTopPadding
 import one.only.player.core.ui.components.PreferenceGroup
 import one.only.player.core.ui.components.PreferenceSwitch
@@ -41,6 +44,7 @@ import one.only.player.core.ui.components.RadioTextButton
 import one.only.player.core.ui.components.SettingsGroupGap
 import one.only.player.core.ui.components.SubtitleStylePanel
 import one.only.player.core.ui.designsystem.AppIcons
+import one.only.player.core.ui.extensions.label
 import one.only.player.core.ui.extensions.withBottomFallback
 import one.only.player.core.ui.theme.OnlyPlayerTheme
 import one.only.player.settings.composables.OptionsDialog
@@ -143,7 +147,7 @@ private fun SubtitlePreferencesContent(
                     modifier = Modifier.testTag("switch_settings_subtitle_auto_load"),
                     title = stringResource(id = R.string.subtitle_auto_load),
                     description = stringResource(id = R.string.subtitle_auto_load_desc),
-                    icon = AppIcons.Subtitle,
+                    icon = AppIcons.Magic,
                     isChecked = uiState.preferences.isSubtitleAutoLoadEnabled,
                     onClick = { onEvent(SubtitlePreferencesUiEvent.ToggleSubtitleAutoLoad) },
                 )
@@ -159,7 +163,7 @@ private fun SubtitlePreferencesContent(
                 PreferenceSwitch(
                     modifier = Modifier.testTag("switch_settings_subtitle_remember_track"),
                     title = stringResource(id = R.string.remember_subtitle_track),
-                    icon = AppIcons.Subtitle,
+                    icon = AppIcons.Bookmark,
                     isChecked = uiState.preferences.shouldRememberSubtitleTrack,
                     onClick = { onEvent(SubtitlePreferencesUiEvent.ToggleRememberSubtitleTrack) },
                 )
@@ -167,9 +171,29 @@ private fun SubtitlePreferencesContent(
                     modifier = Modifier.testTag("item_settings_subtitle_encoding"),
                     title = stringResource(R.string.subtitle_text_encoding),
                     description = charsetResource.first { it.contains(uiState.preferences.subtitleTextEncoding) },
-                    icon = AppIcons.Subtitle,
+                    icon = AppIcons.Code,
                     onClick = { onEvent(SubtitlePreferencesUiEvent.ShowDialog(SubtitlePreferenceDialog.SubtitleEncodingDialog)) },
                 )
+            }
+
+            ListSectionTitle(text = stringResource(R.string.online_subtitle_search_settings))
+            PreferenceGroup {
+                ClickablePreferenceItem(
+                    modifier = Modifier.testTag("item_settings_online_subtitle_language"),
+                    title = stringResource(R.string.online_subtitle_default_language),
+                    description = uiState.preferences.onlineSubtitleSearchPreferences.languageFilter.label(),
+                    icon = AppIcons.Translate,
+                    onClick = { onEvent(SubtitlePreferencesUiEvent.ShowDialog(SubtitlePreferenceDialog.OnlineSubtitleLanguageDialog)) },
+                )
+                OnlineSubtitleProvider.entries.forEach { provider ->
+                    PreferenceSwitch(
+                        modifier = Modifier.testTag("switch_settings_online_subtitle_source_${provider.name.lowercase()}"),
+                        title = provider.label(),
+                        icon = AppIcons.Server,
+                        isChecked = provider in uiState.preferences.onlineSubtitleSearchPreferences.providers,
+                        onClick = { onEvent(SubtitlePreferencesUiEvent.ToggleOnlineSubtitleProvider(provider)) },
+                    )
+                }
             }
 
             PreferenceGroup {
@@ -238,6 +262,24 @@ private fun SubtitlePreferencesContent(
 
         uiState.showDialog?.let { showDialog ->
             when (showDialog) {
+                SubtitlePreferenceDialog.OnlineSubtitleLanguageDialog -> {
+                    OptionsDialog(
+                        text = stringResource(R.string.online_subtitle_default_language),
+                        onDismissClick = { onEvent(SubtitlePreferencesUiEvent.ShowDialog(null)) },
+                    ) {
+                        items(OnlineSubtitleLanguageFilter.entries) { language ->
+                            RadioTextButton(
+                                modifier = Modifier.testTag("option_settings_online_subtitle_language_${language.name.lowercase()}"),
+                                text = language.label(),
+                                isSelected = language == uiState.preferences.onlineSubtitleSearchPreferences.languageFilter,
+                                onClick = {
+                                    onEvent(SubtitlePreferencesUiEvent.UpdateOnlineSubtitleLanguage(language))
+                                    onEvent(SubtitlePreferencesUiEvent.ShowDialog(null))
+                                },
+                            )
+                        }
+                    }
+                }
                 SubtitlePreferenceDialog.SubtitleLanguageDialog -> {
                     OptionsDialog(
                         text = stringResource(id = R.string.preferred_subtitle_lang),

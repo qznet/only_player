@@ -7,7 +7,7 @@ object Logger {
     private var fileLogStore: FileLogStore? = null
 
     fun initialize(context: Context) {
-        fileLogStore = FileLogStore(context.applicationContext)
+        fileLogStore = FileLogStore(context)
     }
 
     fun debug(tag: String, message: String) {
@@ -22,7 +22,12 @@ object Logger {
         writeToFile("I", tag, sanitizedMessage)
     }
 
-    fun error(tag: String, message: String, throwable: Throwable? = null) {
+    fun error(
+        tag: String,
+        message: String,
+        throwable: Throwable? = null,
+        shouldWriteToFile: Boolean = true,
+    ) {
         val sanitizedMessage = sanitize(message)
         val sanitizedThrowable = throwable?.stackTraceToString()?.let(::sanitize)
         val logcatMessage = buildString {
@@ -33,7 +38,7 @@ object Logger {
             }
         }
         runCatching { Log.e("Logger - $tag", logcatMessage) }
-        writeToFile("E", tag, sanitizedMessage, sanitizedThrowable)
+        if (shouldWriteToFile) writeToFile("E", tag, sanitizedMessage, sanitizedThrowable)
     }
 
     fun readLogs(): String = runCatching { sanitize(fileLogStore?.read().orEmpty()) }.getOrDefault("")

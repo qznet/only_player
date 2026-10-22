@@ -148,7 +148,6 @@ private fun ThumbnailPreferencesContent(
                 PreferenceSlider(
                     isEnabled = preferences.thumbnailGenerationStrategy != ThumbnailGenerationStrategy.FIRST_FRAME,
                     modifier = Modifier.testTag("item_settings_thumbnail_frame_position"),
-                    sliderModifier = Modifier.testTag("slider_settings_thumbnail_frame_position"),
                     title = stringResource(R.string.frame_position),
                     description = stringResource(R.string.frame_position_value, frameSliderValue),
                     icon = AppIcons.Frame,

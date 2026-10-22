@@ -20,6 +20,7 @@ private val DefaultBottomRightControls = listOf(
 private val DefaultMenuControls = listOf(
     PlayerControl.SUBTITLE,
     PlayerControl.AUDIO,
+    PlayerControl.AUDIO_EQUALIZER,
     PlayerControl.CHAPTERS,
     PlayerControl.SCALE,
     PlayerControl.DECODER,

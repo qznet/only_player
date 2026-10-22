@@ -12,6 +12,8 @@ import kotlinx.coroutines.launch
 import one.only.player.core.data.repository.AppUpdateChecker
 import one.only.player.core.data.repository.AppUpdateResult
 import one.only.player.core.data.repository.PreferencesRepository
+import one.only.player.core.model.AppUpdateInfo
+import one.only.player.core.model.UpdateChannel
 
 @HiltViewModel
 class AboutPreferencesViewModel @Inject constructor(
@@ -22,6 +24,7 @@ class AboutPreferencesViewModel @Inject constructor(
     private val uiStateInternal = MutableStateFlow(
         AboutPreferencesUiState(
             shouldCheckForUpdatesOnStartup = preferencesRepository.applicationPreferences.value.shouldCheckForUpdatesOnStartup,
+            updateChannel = preferencesRepository.applicationPreferences.value.updateChannel,
         ),
     )
     val uiState = uiStateInternal.asStateFlow()
@@ -30,7 +33,10 @@ class AboutPreferencesViewModel @Inject constructor(
         viewModelScope.launch {
             preferencesRepository.applicationPreferences.collect { prefs ->
                 uiStateInternal.update {
-                    it.copy(shouldCheckForUpdatesOnStartup = prefs.shouldCheckForUpdatesOnStartup)
+                    it.copy(
+                        shouldCheckForUpdatesOnStartup = prefs.shouldCheckForUpdatesOnStartup,
+                        updateChannel = prefs.updateChannel,
+                    )
                 }
             }
         }
@@ -40,6 +46,8 @@ class AboutPreferencesViewModel @Inject constructor(
         when (event) {
             is AboutPreferencesUiEvent.CheckForUpdates -> checkForUpdates(event.currentVersion)
             AboutPreferencesUiEvent.ToggleCheckOnStartup -> toggleCheckOnStartup()
+            is AboutPreferencesUiEvent.ShowDialog -> showDialog(event.value)
+            is AboutPreferencesUiEvent.SetUpdateChannel -> setUpdateChannel(event.channel)
         }
     }
 
@@ -48,15 +56,23 @@ class AboutPreferencesViewModel @Inject constructor(
         uiStateInternal.update { it.copy(updateState = UpdateState.Checking) }
 
         viewModelScope.launch {
-            val result = when (val checkResult = appUpdateChecker.checkForUpdate(currentVersion)) {
-                is AppUpdateResult.Available -> UpdateState.UpdateAvailable(
-                    latestVersion = checkResult.info.latestVersion,
-                    releaseUrl = checkResult.info.releaseUrl,
-                )
+            val channel = uiStateInternal.value.updateChannel
+            val result = when (val checkResult = appUpdateChecker.checkForUpdate(currentVersion, channel)) {
+                is AppUpdateResult.Available -> UpdateState.UpdateAvailable(checkResult.info)
                 AppUpdateResult.UpToDate -> UpdateState.UpToDate
                 AppUpdateResult.Failed -> UpdateState.Error
             }
-            uiStateInternal.update { it.copy(updateState = result) }
+            uiStateInternal.update {
+                if (it.updateChannel != channel) return@update it
+                it.copy(
+                    updateState = result,
+                    showDialog = if (result is UpdateState.UpdateAvailable) {
+                        AboutPreferenceDialog.Update(result.info)
+                    } else {
+                        it.showDialog
+                    },
+                )
+            }
         }
     }
 
@@ -67,23 +83,51 @@ class AboutPreferencesViewModel @Inject constructor(
             }
         }
     }
+
+    private fun showDialog(value: AboutPreferenceDialog?) {
+        uiStateInternal.update { it.copy(showDialog = value) }
+    }
+
+    private fun setUpdateChannel(channel: UpdateChannel) {
+        uiStateInternal.update {
+            it.copy(
+                updateChannel = channel,
+                updateState = UpdateState.Idle,
+                showDialog = null,
+            )
+        }
+        viewModelScope.launch {
+            preferencesRepository.updateApplicationPreferences {
+                it.copy(updateChannel = channel)
+            }
+        }
+    }
 }
 
 @Stable
 data class AboutPreferencesUiState(
     val updateState: UpdateState = UpdateState.Idle,
     val shouldCheckForUpdatesOnStartup: Boolean = false,
+    val updateChannel: UpdateChannel = UpdateChannel.STABLE,
+    val showDialog: AboutPreferenceDialog? = null,
 )
 
 sealed interface UpdateState {
     data object Idle : UpdateState
     data object Checking : UpdateState
     data object UpToDate : UpdateState
-    data class UpdateAvailable(val latestVersion: String, val releaseUrl: String) : UpdateState
+    data class UpdateAvailable(val info: AppUpdateInfo) : UpdateState
     data object Error : UpdateState
 }
 
 sealed interface AboutPreferencesUiEvent {
     data class CheckForUpdates(val currentVersion: String) : AboutPreferencesUiEvent
     data object ToggleCheckOnStartup : AboutPreferencesUiEvent
+    data class ShowDialog(val value: AboutPreferenceDialog?) : AboutPreferencesUiEvent
+    data class SetUpdateChannel(val channel: UpdateChannel) : AboutPreferencesUiEvent
+}
+
+sealed interface AboutPreferenceDialog {
+    data object UpdateChannel : AboutPreferenceDialog
+    data class Update(val info: AppUpdateInfo) : AboutPreferenceDialog
 }

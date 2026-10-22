@@ -11,15 +11,61 @@ import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
+import androidx.media3.exoplayer.video.VideoRendererEventListener
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegAudioRenderer
+import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegVideoRenderer
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory
 
 @OptIn(UnstableApi::class)
 class NormalizingRenderersFactory(
     context: Context,
-    private val volumeNormalizationAudioProcessor: AudioProcessor,
+    private val audioProcessors: Array<AudioProcessor>,
     private val shouldUseAudioExtensionFallback: Boolean,
 ) : NextRenderersFactory(context) {
+
+    override fun buildVideoRenderers(
+        context: Context,
+        extensionRendererMode: Int,
+        mediaCodecSelector: MediaCodecSelector,
+        enableDecoderFallback: Boolean,
+        eventHandler: Handler,
+        eventListener: VideoRendererEventListener,
+        allowedVideoJoiningTimeMs: Long,
+        out: ArrayList<Renderer>,
+    ) {
+        fun newRendererBuilder() = MediaCodecVideoRenderer.Builder(context)
+            .setCodecAdapterFactory(codecAdapterFactory)
+            .setMediaCodecSelector(mediaCodecSelector)
+            .setAllowedJoiningTimeMs(allowedVideoJoiningTimeMs)
+            .setEnableDecoderFallback(enableDecoderFallback)
+            .setEventHandler(eventHandler)
+            .setEventListener(eventListener)
+            .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)
+
+        val firstVideoRendererIndex = out.size
+        val hardwareRenderer = VideoEffectsRenderer(
+            builder = newRendererBuilder(),
+            eventHandler = eventHandler,
+            eventListener = eventListener,
+        )
+        out.add(hardwareRenderer)
+        out.add(DolbyVisionVideoRenderer(newRendererBuilder()))
+        if (extensionRendererMode == EXTENSION_RENDERER_MODE_OFF) return
+
+        val softwareRenderer = FfmpegVideoRenderer(
+            allowedVideoJoiningTimeMs,
+            eventHandler,
+            eventListener,
+            MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY,
+        )
+        val extensionRendererIndex = if (extensionRendererMode == EXTENSION_RENDERER_MODE_PREFER) {
+            firstVideoRendererIndex
+        } else {
+            out.size
+        }
+        out.add(extensionRendererIndex, softwareRenderer)
+    }
 
     override fun buildAudioSink(
         context: Context,
@@ -28,7 +74,7 @@ class NormalizingRenderersFactory(
     ): AudioSink = DefaultAudioSink.Builder(context)
         .setEnableFloatOutput(enableFloatOutput)
         .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
-        .setAudioProcessors(arrayOf(volumeNormalizationAudioProcessor))
+        .setAudioProcessors(audioProcessors)
         .build()
 
     override fun buildAudioRenderers(

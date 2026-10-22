@@ -7,13 +7,19 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.ListenableFuture
 import one.only.player.core.common.Logger
 import one.only.player.feature.player.service.preciseSeekTo
 import one.only.player.feature.player.service.setMediaControllerIsScrubbingModeEnabled
-fun Player.switchTrack(trackType: @C.TrackType Int, trackIndex: Int) {
+import one.only.player.feature.player.service.setMediaControllerIsSeekPreviewEnabled
+
+fun Player.switchTrack(
+    trackType: @C.TrackType Int,
+    trackIndex: Int,
+) {
     val trackTypeText = when (trackType) {
         C.TRACK_TYPE_AUDIO -> "audio"
         C.TRACK_TYPE_TEXT -> "subtitle"
@@ -39,7 +45,7 @@ fun Player.switchTrack(trackType: @C.TrackType Int, trackIndex: Int) {
         val format = selectedGroup.mediaTrackGroup.getFormat(0)
         Logger.debug(
             "Player",
-            "Track format: mime=${format.sampleMimeType}, label=${format.label}, id=${format.id}",
+            "Track format: mime=${format.sampleMimeType}",
         )
         val trackSelectionOverride = TrackSelectionOverride(tracks[trackIndex].mediaTrackGroup, 0)
 
@@ -50,6 +56,17 @@ fun Player.switchTrack(trackType: @C.TrackType Int, trackIndex: Int) {
             .setOverrideForType(trackSelectionOverride)
             .build()
     }
+}
+
+// 元数据中的新增列表不包含同目录自动加载的字幕，需与媒体配置合并
+@UnstableApi
+internal fun Player.externalSubtitleIds(): Set<String> {
+    val configurationIds = currentMediaItem
+        ?.localConfiguration
+        ?.subtitleConfigurations
+        ?.mapNotNull { it.id }
+        .orEmpty()
+    return (configurationIds + currentMediaItem?.mediaMetadata?.addedSubtitleIds.orEmpty()).toSet()
 }
 
 @UnstableApi
@@ -67,19 +84,49 @@ fun Player.getManuallySelectedTrackIndex(trackType: @C.TrackType Int): Int? {
 fun Player.addAdditionalSubtitleConfiguration(subtitle: MediaItem.SubtitleConfiguration) {
     val currentMediaItemLocal = currentMediaItem ?: return
     val existingSubConfigurations = currentMediaItemLocal.localConfiguration?.subtitleConfigurations ?: emptyList()
+    val subtitleId = requireNotNull(subtitle.id)
+    val addedSubtitleIds = (currentMediaItemLocal.mediaMetadata.addedSubtitleIds + subtitleId).distinct()
 
     if (existingSubConfigurations.any { it.id == subtitle.id }) {
+        replaceMediaItem(currentMediaItemIndex, currentMediaItemLocal.copy(addedSubtitleIds = addedSubtitleIds))
         return
     }
 
     val updateMediaItem = currentMediaItemLocal
+        .copy(
+            positionMs = currentPosition,
+            addedSubtitleIds = addedSubtitleIds,
+        )
         .buildUpon()
         .setSubtitleConfigurations(existingSubConfigurations + listOf(subtitle))
         .build()
 
+    replaceCurrentSubtitleItem(updateMediaItem)
+}
+
+fun Player.removeAdditionalSubtitleConfiguration(
+    subtitleId: String,
+    selectedTrackIndex: Int,
+) {
+    val mediaItem = currentMediaItem ?: return
+    val configurations = mediaItem.localConfiguration?.subtitleConfigurations.orEmpty()
+    val updatedMediaItem = mediaItem.copy(
+        positionMs = currentPosition,
+        subtitleTrackIndex = selectedTrackIndex,
+        addedSubtitleIds = mediaItem.mediaMetadata.addedSubtitleIds - subtitleId,
+    ).buildUpon()
+        .setSubtitleConfigurations(configurations.filterNot { it.id == subtitleId })
+        .build()
+    replaceCurrentSubtitleItem(updatedMediaItem)
+}
+
+private fun Player.replaceCurrentSubtitleItem(mediaItem: MediaItem) {
     val index = currentMediaItemIndex
-    addMediaItem(index + 1, updateMediaItem)
-    seekToDefaultPosition(index + 1)
+    val position = currentPosition
+    val shouldPlayWhenReady = playWhenReady
+    addMediaItem(index + 1, mediaItem)
+    seekTo(index + 1, position)
+    playWhenReady = shouldPlayWhenReady
     removeMediaItem(index)
 }
 
@@ -148,5 +195,16 @@ fun Player.setIsScrubbingModeEnabled(isEnabled: Boolean) {
     when (this) {
         is MediaController -> this.setMediaControllerIsScrubbingModeEnabled(isEnabled)
         is ExoPlayer -> this.isScrubbingModeEnabled = isEnabled
+    }
+}
+
+// 预览期放宽 seek 精度到最近关键帧，长视频才能跟上手指；关闭时恢复精确 seek
+@OptIn(UnstableApi::class)
+fun Player.setIsSeekPreviewEnabled(isEnabled: Boolean) {
+    when (this) {
+        is MediaController -> this.setMediaControllerIsSeekPreviewEnabled(isEnabled)
+        is ExoPlayer -> this.setSeekParameters(
+            if (isEnabled) SeekParameters.CLOSEST_SYNC else SeekParameters.DEFAULT,
+        )
     }
 }

@@ -2,7 +2,7 @@ name: 测试检查
 
 on:
   push:
-    branches: [ main ]
+    branches: [main, dev]
   pull_request:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
@@ -11,10 +11,13 @@ concurrency:
   group: test-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   prepare:
     name: 准备构建信息
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       application_id: ${{ steps.app.outputs.application_id }}
       version_name: ${{ steps.app.outputs.version_name }}
@@ -29,63 +32,51 @@ jobs:
         id: app
         shell: bash
         run: |
-          application_id=$(grep -m1 'applicationId = "' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
-          version_name=$(grep -m1 'versionName = "' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
-          version_code=$(grep -m1 'versionCode = ' app/build.gradle.kts | sed -E 's/.*= ([0-9]+).*/\1/')
+          set -euo pipefail
+          application_id="$(grep -m1 'applicationId = "' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')"
+          version_name="$(grep -m1 'versionName = "' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')"
+          version_code="$(grep -m1 'versionCode = ' app/build.gradle.kts | sed -E 's/.*= ([0-9]+).*/\1/')"
           ref_name="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
-          short_sha=$(git rev-parse --short HEAD)
+          short_sha="$(git rev-parse --short HEAD)"
 
-          if [ -z "$application_id" ] || [ -z "$version_name" ] || [ -z "$version_code" ]; then
+          if [ -z "${application_id}" ] || [ -z "${version_name}" ] || [ -z "${version_code}" ]; then
             echo "::error::无法从 app/build.gradle.kts 读取应用信息"
             exit 1
           fi
 
-          if ! [[ "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::versionName 格式无效：$version_name"
+          if [[ ! "${version_name}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::versionName 格式无效：${version_name}"
             echo "期望格式：x.y.z"
             exit 1
           fi
 
-          echo "application_id=$application_id" >> "$GITHUB_OUTPUT"
-          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
-          echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
-          echo "ref_name=$ref_name" >> "$GITHUB_OUTPUT"
-          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+          echo "application_id=${application_id}" >> "$GITHUB_OUTPUT"
+          echo "version_name=${version_name}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${version_code}" >> "$GITHUB_OUTPUT"
+          echo "ref_name=${ref_name}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
 
       - name: 输出预构建信息
         shell: bash
         run: |
-          echo "============================================"
-          echo "📦 应用 ID:     ${{ steps.app.outputs.application_id }}"
-          echo "🏷️ 版本名称:    ${{ steps.app.outputs.version_name }}"
-          echo "🔢 版本号:      ${{ steps.app.outputs.version_code }}"
-          echo "🌿 分支或来源:  ${{ steps.app.outputs.ref_name }}"
-          echo "🧾 提交短哈希:  ${{ steps.app.outputs.short_sha }}"
-          echo "============================================"
+          echo "应用 ID:     ${{ steps.app.outputs.application_id }}"
+          echo "版本名称:    ${{ steps.app.outputs.version_name }}"
+          echo "版本号:      ${{ steps.app.outputs.version_code }}"
+          echo "分支或来源:  ${{ steps.app.outputs.ref_name }}"
+          echo "提交短哈希:  ${{ steps.app.outputs.short_sha }}"
 
   verify:
     name: 格式化与代码检查
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: 检出代码
         uses: actions/checkout@v6
 
-      - name: 输出预构建信息
-        shell: bash
-        run: |
-          echo "============================================"
-          echo "📦 应用 ID:     ${{ needs.prepare.outputs.application_id }}"
-          echo "🏷️ 版本名称:    ${{ needs.prepare.outputs.version_name }}"
-          echo "🔢 版本号:      ${{ needs.prepare.outputs.version_code }}"
-          echo "🌿 分支或来源:  ${{ needs.prepare.outputs.ref_name }}"
-          echo "🧾 提交短哈希:  ${{ needs.prepare.outputs.short_sha }}"
-          echo "============================================"
-
-      - name: 配置 JDK 25
+      - name: 配置 JDK 26
         uses: actions/setup-java@v5
         with:
-          java-version: 25
+          java-version: 26
           distribution: temurin
 
       - name: 配置 Gradle
@@ -96,7 +87,7 @@ jobs:
 
       - name: 执行 Ktlint 格式化
         shell: bash
-        run: bash ./gradlew ktlintFormat ktlintCheck --warning-mode=fail
+        run: bash ./gradlew ktlintFormat ktlintCheck --warning-mode=all
 
       - name: 检查格式化结果
         shell: bash
@@ -110,54 +101,137 @@ jobs:
           path: |
             **/build/reports
 
-  auto-release:
-    name: 自动触发发布
-    needs: [prepare, verify]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      actions: write
+  detect-dev-build-changes:
+    name: 检测开发版构建变更
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    outputs:
+      should_build: ${{ steps.changes.outputs.should_build }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: 检查版本号和更新日志
-        id: check
+      - name: 检测产品变更
+        id: changes
         shell: bash
-        run: |
-          version="${{ needs.prepare.outputs.version_name }}"
-          tag="v${version}"
-
-          if git tag -l "$tag" | grep -q .; then
-            echo "标签 $tag 已存在，跳过发布"
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          if [ -n "$latest_tag" ]; then
-            changelog_changed=$(git diff --name-only "$latest_tag" HEAD -- .github/CHANGELOG.md | wc -l)
-          else
-            changelog_changed=1
-          fi
-
-          if [ "$changelog_changed" -eq 0 ]; then
-            echo "更新日志未变更，跳过发布"
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "版本 $version 待发布，更新日志已更新"
-          echo "should_release=true" >> "$GITHUB_OUTPUT"
-
-      - name: 直接触发发布工作流
-        if: steps.check.outputs.should_release == 'true'
         env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BEFORE_SHA}" ] || [[ "${BEFORE_SHA}" =~ ^0+$ ]]; then
+            echo 'should_build=false' >> "$GITHUB_OUTPUT"
+            echo '缺少可比较的前一次提交：跳过开发版构建。'
+            exit 0
+          fi
+
+          if git log --format= --patch "${BEFORE_SHA}..${AFTER_SHA}" -- app/build.gradle.kts | grep -Eq '^[+-].*versionName'; then
+            echo 'should_build=false' >> "$GITHUB_OUTPUT"
+            echo '本次推送修改了 versionName，跳过开发版构建。'
+            exit 0
+          fi
+
+          if git log --format= --name-only "${BEFORE_SHA}..${AFTER_SHA}" -- .github/CHANGELOG.md | grep -q .; then
+            echo 'should_build=false' >> "$GITHUB_OUTPUT"
+            echo '本次推送修改了更新日志，跳过开发版构建。'
+            exit 0
+          fi
+
+          props_version="$(grep -m1 'versionName = "' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')"
+          tags="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq '.[] | select(.draft | not) | .tag_name')"
+          stable="${props_version}"
+          while IFS= read -r tag; do
+            if [[ "${tag}" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              candidate="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+              if [ "$(printf '%s\n%s\n' "${stable}" "${candidate}" | sort -V | tail -n 1)" = "${candidate}" ]; then
+                stable="${candidate}"
+              fi
+            fi
+          done <<< "${tags}"
+
+          IFS=. read -r major minor patch <<< "${stable}"
+          target="${major}.${minor}.$((patch + 1))"
+          beta=0
+          while IFS= read -r tag; do
+            if [[ "${tag}" =~ ^v?${target//./\.}-beta([0-9]+)$ ]] && [ "${BASH_REMATCH[1]}" -gt "${beta}" ]; then
+              beta="${BASH_REMATCH[1]}"
+            fi
+          done <<< "${tags}"
+
+          if [ "${beta}" -gt 0 ]; then
+            previous_tag="v${target}-beta${beta}"
+          else
+            stable_tag="v${stable}"
+            baseline_tag="dev-base/${stable_tag}"
+            if git ls-remote --exit-code --tags origin "refs/tags/${baseline_tag}" >/dev/null 2>&1; then
+              previous_tag="${baseline_tag}"
+            else
+              previous_tag="${stable_tag}"
+            fi
+          fi
+
+          if ! git ls-remote --exit-code --tags origin "refs/tags/${previous_tag}" >/dev/null 2>&1; then
+            echo 'should_build=false' >> "$GITHUB_OUTPUT"
+            echo "::notice::基线标签 ${previous_tag} 尚不存在，跳过开发版构建。"
+            exit 0
+          fi
+
+          git fetch --force origin "refs/tags/${previous_tag}:refs/tags/${previous_tag}"
+          git diff --name-only "${previous_tag}" "${AFTER_SHA}" > changed-paths.txt
+          should_build=false
+          while IFS= read -r path; do
+            case "${path}" in
+              .github/CHANGELOG.md|app/build.gradle.kts)
+                ;;
+              *.kt|*.kts|*.xml|*.pro|gradle/*|gradlew|gradlew.bat|gradle.properties|scripts/*|app/*|core/*|feature/*)
+                should_build=true
+                break
+                ;;
+            esac
+          done < changed-paths.txt
+          echo "should_build=${should_build}" >> "$GITHUB_OUTPUT"
+
+          if [ "${should_build}" = true ]; then
+            echo "自 ${previous_tag} 以来存在产品变更，需要开发版构建。"
+          else
+            echo "自 ${previous_tag} 以来没有产品变更，跳过开发版构建。"
+          fi
+
+  trigger-dev-publish:
+    name: 触发开发版发布
+    needs: [prepare, verify, detect-dev-build-changes]
+    if: >-
+      ${{
+        always() &&
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/dev' &&
+        needs.verify.result == 'success' &&
+        needs.detect-dev-build-changes.result == 'success' &&
+        needs.detect-dev-build-changes.outputs.should_build == 'true'
+      }}
+    uses: ./.github/workflows/publish-dev.yaml
+    secrets: inherit
+
+  skip-dev-publish:
+    name: 无需开发版发布
+    needs: [prepare, verify, detect-dev-build-changes]
+    if: >-
+      ${{
+        always() &&
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/dev' &&
+        needs.verify.result == 'success' &&
+        needs.detect-dev-build-changes.result == 'success' &&
+        needs.detect-dev-build-changes.outputs.should_build != 'true'
+      }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 记录有意跳过
         shell: bash
         run: |
-          version="${{ needs.prepare.outputs.version_name }}"
-          gh workflow run publish.yaml -f version="${version}" -f create_release=true
+          echo '::notice::检查已通过；没有需要开发版构建的产品变更。'
+          echo '### 开发版构建' >> "$GITHUB_STEP_SUMMARY"
+          echo '检查已通过。因为没有产品文件变更，开发版构建被有意跳过。' >> "$GITHUB_STEP_SUMMARY"

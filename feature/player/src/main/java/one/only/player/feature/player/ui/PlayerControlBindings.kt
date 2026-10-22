@@ -60,6 +60,10 @@ internal fun playerControlBindings(
             action = PlayerControlAction.OpenPanel(MenuRoute.Audio),
         ),
         binding(
+            control = PlayerControl.AUDIO_EQUALIZER,
+            action = PlayerControlAction.OpenPanel(MenuRoute.AudioEqualizer),
+        ),
+        binding(
             control = PlayerControl.CHAPTERS,
             action = PlayerControlAction.OpenPanel(MenuRoute.Chapters),
             isAvailable = hasChapters,

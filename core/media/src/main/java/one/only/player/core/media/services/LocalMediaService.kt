@@ -813,10 +813,11 @@ class LocalMediaService @Inject constructor(
             .build()
     }
 
+    // 回收站的通用类型不代表原视频格式，还原时按原文件名重新推导。
     private fun resolveMimeType(
         uri: Uri,
         displayName: String,
-    ): String = contentResolver.getType(uri)
+    ): String = contentResolver.getType(uri)?.takeUnless { it == RECYCLE_BIN_MIME_TYPE }
         ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(displayName.substringAfterLast('.', "").lowercase())
         ?: "video/*"
 

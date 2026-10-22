@@ -20,9 +20,11 @@ import one.only.player.core.data.repository.PlaybackMarkRepository
 import one.only.player.core.data.repository.PlaylistRepository
 import one.only.player.core.data.repository.PreferencesRepository
 import one.only.player.core.data.repository.RemoteServerRepository
+import one.only.player.core.data.repository.RemoteSubtitleSearchRepository
 import one.only.player.core.data.repository.SearchHistoryRepository
 import one.only.player.core.data.repository.SubtitleFontFileValidator
 import one.only.player.core.data.repository.SubtitleFontRepository
+import one.only.player.core.data.repository.SubtitleSearchRepository
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -79,4 +81,10 @@ interface DataModule {
     fun bindsSubtitleFontFileValidator(
         subtitleFontFileValidator: AndroidSubtitleFontFileValidator,
     ): SubtitleFontFileValidator
+
+    @Binds
+    @Singleton
+    fun bindsSubtitleSearchRepository(
+        subtitleSearchRepository: RemoteSubtitleSearchRepository,
+    ): SubtitleSearchRepository
 }
