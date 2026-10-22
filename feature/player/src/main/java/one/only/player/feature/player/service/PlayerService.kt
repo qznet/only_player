@@ -261,13 +261,16 @@ class PlayerService : MediaSessionService() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private val audioModeReselectRunnable = Runnable {
+    // The explicit types break an inference cycle: this runnable's body needs the controller's
+    // type, and the controller's initializer needs this runnable's type. Declaring both types
+    // lets the compiler resolve them without inferring one from the other.
+    private val audioModeReselectRunnable: Runnable = Runnable {
         // The crossing inside the window still owes its rebuild; the rate it is waiting for is
         // already parked in the controller, so nothing here re-reads the player's speed.
         mediaSession?.player?.let { audioModeController.flushPendingReselect(it) }
     }
 
-    private val audioModeController = AudioModeController(
+    private val audioModeController: AudioModeController = AudioModeController(
         preferences = { playerPreferences },
         onReselectRequested = { delayMs: Long ->
             mainHandler.removeCallbacks(audioModeReselectRunnable)
