@@ -67,7 +67,7 @@ fun CardListItem(
         } else {
             containerColor
         },
-        modifier = modifier.then(clickableModifier),
+        modifier = modifier.tvFocusRing(shape = itemShape).then(clickableModifier),
     ) {
         BasicComponent(
             startAction = leadingContent,

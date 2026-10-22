@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import one.only.player.core.ui.components.TvInitialFocusColumn
+import one.only.player.core.ui.components.tvFocusRing
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -153,7 +154,9 @@ fun SettingsScreen(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     section.rows.forEach { resolved ->
                         ArrowPreference(
-                            modifier = Modifier.testTag("item_settings_${resolved.row.setting.name.lowercase()}"),
+                            modifier = Modifier
+                                .testTag("item_settings_${resolved.row.setting.name.lowercase()}")
+                                .tvFocusRing(shape = androidx.compose.foundation.shape.RoundedCornerShape(0.dp)),
                             title = resolved.title,
                             summary = resolved.description,
                             startAction = {

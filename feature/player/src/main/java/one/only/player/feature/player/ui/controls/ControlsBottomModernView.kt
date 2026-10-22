@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import kotlin.time.Duration.Companion.milliseconds
 import one.only.player.core.model.PlayerControl
 import one.only.player.core.ui.R
+import one.only.player.core.ui.components.tvFocusRing
 import one.only.player.core.ui.designsystem.AppIcons
 import one.only.player.feature.player.LocalControlsVisibilityState
 import one.only.player.feature.player.extensions.formatted
@@ -114,7 +115,8 @@ internal fun ControlsBottomModernView(
                 MiuixIconButton(
                     modifier = Modifier
                         .testTag("btn_play_pause_modern")
-                        .then(if (initialFocusRequester != null) Modifier.focusRequester(initialFocusRequester) else Modifier),
+                        .then(if (initialFocusRequester != null) Modifier.focusRequester(initialFocusRequester) else Modifier)
+                        .tvFocusRing(shape = CircleShape, color = Color.White),
                     onClick = onPlayPauseClick,
                 ) {
                     Crossfade(
@@ -158,7 +160,9 @@ internal fun ControlsBottomModernView(
                 )
             }
             MiuixIconButton(
-                modifier = Modifier.testTag("btn_previous_modern"),
+                modifier = Modifier
+                    .testTag("btn_previous_modern")
+                    .tvFocusRing(shape = CircleShape, color = Color.White),
                 onClick = onPreviousClick,
                 enabled = hasPrevious,
             ) {
@@ -170,7 +174,9 @@ internal fun ControlsBottomModernView(
                 )
             }
             MiuixIconButton(
-                modifier = Modifier.testTag("btn_next_modern"),
+                modifier = Modifier
+                    .testTag("btn_next_modern")
+                    .tvFocusRing(shape = CircleShape, color = Color.White),
                 onClick = onNextClick,
                 enabled = hasNext,
             ) {

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -37,6 +38,7 @@ import kotlinx.serialization.Serializable
 import one.only.player.core.ui.R as UiR
 import one.only.player.core.ui.components.isTvDevice
 import one.only.player.core.ui.components.surfaceBlur
+import one.only.player.core.ui.components.tvFocusRing
 import one.only.player.core.ui.designsystem.AppIcons
 import one.only.player.core.ui.extensions.LocalRootBottomBarPadding
 import one.only.player.ui.component.FloatingBottomBar
@@ -238,7 +240,8 @@ private fun FloatingRootBottomBar(
                     modifier = Modifier
                         .defaultMinSize(minWidth = 76.dp)
                         .testTag(target.tag)
-                        .then(if (currentRoot == target) Modifier.focusRequester(bottomBarFocusRequester) else Modifier),
+                        .then(if (currentRoot == target) Modifier.focusRequester(bottomBarFocusRequester) else Modifier)
+                        .tvFocusRing(shape = RoundedCornerShape(16.dp)),
             ) {
                 // 图标恒用 onSurface，选中态由上层 tint 采样药丸表现
                 Icon(
@@ -282,6 +285,7 @@ private fun RowScope.RootNavigationBarItem(
             .weight(1f)
             .testTag(destination.tag)
             .then(focusModifier)
+            .tvFocusRing(shape = RoundedCornerShape(12.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,

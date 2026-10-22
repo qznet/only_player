@@ -75,6 +75,7 @@ fun PreferenceItem(
     PreferenceContainer(modifier = modifier) {
         if (showArrow) {
             ArrowPreference(
+                modifier = Modifier.tvFocusRing(),
                 title = title,
                 summary = description,
                 startAction = icon?.let { { PreferenceIcon(it, isEnabled) } },
@@ -84,6 +85,7 @@ fun PreferenceItem(
             )
         } else {
             BasicComponent(
+                modifier = Modifier.tvFocusRing(),
                 title = title,
                 summary = description,
                 startAction = icon?.let { { PreferenceIcon(it, isEnabled) } },
@@ -123,6 +125,7 @@ fun SelectablePreference(
 ) {
     PreferenceContainer(modifier = modifier) {
         CheckboxPreference(
+            modifier = Modifier.tvFocusRing(),
             title = title,
             summary = description,
             checked = isSelected,
@@ -143,6 +146,7 @@ fun SingleSelectablePreference(
 ) {
     PreferenceContainer(modifier = modifier) {
         RadioButtonPreference(
+            modifier = Modifier.tvFocusRing(),
             title = title,
             summary = description,
             selected = isSelected,

@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import one.only.player.core.model.PlayerControl
+import one.only.player.core.ui.components.tvFocusRing
 import one.only.player.core.ui.R
 import one.only.player.core.ui.designsystem.AppIcons
 import one.only.player.core.ui.extensions.copy
@@ -49,7 +50,9 @@ internal fun ControlsTopModernView(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         MiuixIconButton(
-            modifier = Modifier.testTag("btn_back"),
+            modifier = Modifier
+                .tvFocusRing(shape = CircleShape, color = Color.White)
+                .testTag("btn_back"),
             onClick = onBackClick,
         ) {
             MiuixIcon(
@@ -77,7 +80,9 @@ internal fun ControlsTopModernView(
             onOpenPanel = onOpenPanel,
         )
         MiuixIconButton(
-            modifier = Modifier.testTag("btn_menu"),
+            modifier = Modifier
+                .tvFocusRing(shape = CircleShape, color = Color.White)
+                .testTag("btn_menu"),
             onClick = onMenuClick,
         ) {
             MiuixIcon(

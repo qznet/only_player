@@ -33,6 +33,7 @@ fun PreferenceSwitchWithDivider(
 ) {
     PreferenceContainer(modifier = modifier) {
         BasicComponent(
+            modifier = Modifier.tvFocusRing(),
             title = title,
             summary = description,
             startAction = icon?.let { { PreferenceIcon(it, isEnabled) } },
@@ -85,6 +86,7 @@ fun PreferenceCheckbox(
 ) {
     PreferenceContainer {
         CheckboxPreference(
+            modifier = Modifier.tvFocusRing(),
             title = title,
             summary = description,
             checked = isChecked,

@@ -19,6 +19,7 @@ fun PreferenceSwitch(
 ) {
     PreferenceContainer(modifier = modifier) {
         SwitchPreference(
+            modifier = Modifier.tvFocusRing(),
             title = title,
             summary = description,
             startAction = icon?.let { { PreferenceIcon(it, isEnabled) } },

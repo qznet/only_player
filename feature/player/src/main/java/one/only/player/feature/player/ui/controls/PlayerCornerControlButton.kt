@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlin.time.Duration
 import one.only.player.core.model.PlayerControl
+import one.only.player.core.ui.components.tvFocusRing
 import one.only.player.feature.player.LocalControlsVisibilityState
 import one.only.player.feature.player.ui.MenuRoute
 import one.only.player.feature.player.ui.PlayerControlAction
@@ -69,6 +70,7 @@ internal fun PlayerCornerControlButton(
     MiuixIconButton(
         modifier = Modifier
             .size(PlayerCornerControlSize)
+            .tvFocusRing(shape = CircleShape, color = Color.White)
             .testTag(binding.cornerTestTag),
         onClick = onClick,
         enabled = binding.isEnabled,
