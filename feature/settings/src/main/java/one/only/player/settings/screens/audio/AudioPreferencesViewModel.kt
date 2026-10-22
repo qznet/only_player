@@ -57,6 +57,9 @@ class AudioPreferencesViewModel @Inject constructor(
             AudioPreferencesUiEvent.ToggleVolumeBoost -> toggleVolumeBoost()
             AudioPreferencesUiEvent.ToggleSpatialAudio -> toggleSpatialAudio()
             AudioPreferencesUiEvent.ToggleAudioEqualizer -> toggleAudioEqualizer()
+            AudioPreferencesUiEvent.ToggleAudioPassthrough -> toggleAudioPassthrough()
+            AudioPreferencesUiEvent.TogglePassthroughNormalSpeedOnly -> togglePassthroughNormalSpeedOnly()
+            AudioPreferencesUiEvent.ToggleDownmixNarrowRoute -> toggleDownmixNarrowRoute()
             is AudioPreferencesUiEvent.UpdateAudioEqualizerBand -> updateAudioEqualizerBand(event.band, event.levelDb)
             is AudioPreferencesUiEvent.ApplyAudioEqualizerBuiltInPreset -> applyAudioEqualizerBuiltInPreset(event.preset)
             is AudioPreferencesUiEvent.ApplyAudioEqualizerPreset -> applyAudioEqualizerPreset(event.preset)
@@ -164,6 +167,30 @@ class AudioPreferencesViewModel @Inject constructor(
         }
     }
 
+    private fun toggleAudioPassthrough() {
+        viewModelScope.launch {
+            preferencesRepository.updatePlayerPreferences {
+                it.copy(isAudioPassthroughEnabled = !it.isAudioPassthroughEnabled)
+            }
+        }
+    }
+
+    private fun togglePassthroughNormalSpeedOnly() {
+        viewModelScope.launch {
+            preferencesRepository.updatePlayerPreferences {
+                it.copy(isPassthroughAtNormalSpeedOnly = !it.isPassthroughAtNormalSpeedOnly)
+            }
+        }
+    }
+
+    private fun toggleDownmixNarrowRoute() {
+        viewModelScope.launch {
+            preferencesRepository.updatePlayerPreferences {
+                it.copy(isDownmixNarrowRouteEnabled = !it.isDownmixNarrowRouteEnabled)
+            }
+        }
+    }
+
     private fun updateAudioEqualizerBand(
         band: AudioEqualizerBand,
         levelDb: Int,
@@ -239,4 +266,7 @@ sealed interface AudioPreferencesUiEvent {
     data object ToggleVolumeBoost : AudioPreferencesUiEvent
     data object ToggleSpatialAudio : AudioPreferencesUiEvent
     data object ToggleAudioEqualizer : AudioPreferencesUiEvent
+    data object ToggleAudioPassthrough : AudioPreferencesUiEvent
+    data object TogglePassthroughNormalSpeedOnly : AudioPreferencesUiEvent
+    data object ToggleDownmixNarrowRoute : AudioPreferencesUiEvent
 }

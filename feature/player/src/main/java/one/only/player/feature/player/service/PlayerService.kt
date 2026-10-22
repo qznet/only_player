@@ -7,6 +7,8 @@ import android.content.res.Configuration
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
@@ -24,6 +26,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import one.only.player.feature.player.service.audio.AudioModeController
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
@@ -255,6 +258,23 @@ class PlayerService : MediaSessionService() {
     private var isMediaItemReady = false
 
     private val audioEffectsCoordinator = AudioEffectsCoordinator()
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val audioModeReselectRunnable = Runnable {
+        // The crossing inside the window still owes its rebuild; the rate it is waiting for is
+        // already parked in the controller, so nothing here re-reads the player's speed.
+        mediaSession?.player?.let { audioModeController.flushPendingReselect(it) }
+    }
+
+    private val audioModeController = AudioModeController(
+        preferences = { playerPreferences },
+        onReselectRequested = { delayMs ->
+            mainHandler.removeCallbacks(audioModeReselectRunnable)
+            mainHandler.postDelayed(audioModeReselectRunnable, delayMs.coerceAtLeast(0L))
+        },
+        onRateReady = { player, speed -> player.setPlaybackSpeed(speed) },
+    )
     private val videoEffectsCoordinator = VideoEffectsCoordinator(
         scope = serviceScope,
         currentPreferencesProvider = ::playerPreferences,
@@ -398,7 +418,8 @@ class PlayerService : MediaSessionService() {
             }
             mediaItem?.mediaMetadata?.let { metadata ->
                 mediaSession?.player?.run {
-                    setPlaybackSpeed(
+                    audioModeController.requestSpeed(
+                        this,
                         resolveTransitionPlaybackSpeed(
                             transitionReason = reason,
                             currentPlaybackSpeed = playbackParameters.speed,
@@ -481,6 +502,21 @@ class PlayerService : MediaSessionService() {
 
         override fun onTracksChanged(tracks: Tracks) {
             super.onTracksChanged(tracks)
+            // Half of the reselect: the disable has reached the playback thread, so put the audio
+            // type back, rebuilt from the parameters of this moment. Must run before the empty
+            // check below — an audio-only file has no other group to keep the list non-empty.
+            if (audioModeController.isReselectInFlight) {
+                mediaSession?.player?.let { player ->
+                    // Put the type back first, so the rate published below lands on the rebuilt
+                    // track. No re-entry: setTrackSelectionParameters is applied on the playback
+                    // thread, so the onTracksChanged it causes arrives after this one returns.
+                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                        .build()
+                    audioModeController.onReselectSettled(player)
+                }
+                return
+            }
             if (tracks.groups.isEmpty()) return
             if (selectExternalSubtitleIfAvailable(tracks)) return
 
@@ -621,13 +657,13 @@ class PlayerService : MediaSessionService() {
             if (playbackState == Player.STATE_IDLE) {
                 val player = mediaSession?.player ?: return
                 player.trackSelectionParameters = TrackSelectionParameters.DEFAULT
-                player.setPlaybackSpeed(playerPreferences.defaultPlaybackSpeed)
+                audioModeController.requestSpeed(player, playerPreferences.defaultPlaybackSpeed)
                 return
             }
 
             if (playbackState == Player.STATE_ENDED) {
                 val player = mediaSession?.player ?: return
-                player.setPlaybackSpeed(playerPreferences.defaultPlaybackSpeed)
+                audioModeController.requestSpeed(player, playerPreferences.defaultPlaybackSpeed)
                 if (player.isEndOfQueuePauseEnabled()) {
                     hasPausedAtEndOfQueue = true
                     player.pause()
@@ -670,7 +706,7 @@ class PlayerService : MediaSessionService() {
             val player = mediaSession?.player ?: return
             if (player.isEndOfQueuePauseEnabled()) {
                 hasPausedAtEndOfQueue = true
-                player.setPlaybackSpeed(playerPreferences.defaultPlaybackSpeed)
+                audioModeController.requestSpeed(player, playerPreferences.defaultPlaybackSpeed)
                 player.updatePauseAtEndOfMediaItems()
                 return
             }
@@ -734,6 +770,7 @@ class PlayerService : MediaSessionService() {
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             super.onIsPlayingChanged(isPlaying)
+            mediaSession?.player?.let { audioModeController.onPlayingChanged(it, isPlaying) }
             mediaSession?.run {
                 serviceScope.launch {
                     val currentMediaItem = player.currentMediaItem ?: return@launch
@@ -1318,7 +1355,7 @@ class PlayerService : MediaSessionService() {
 
     private fun handleRepeatedPlayback(player: Player) {
         if (player.currentMediaItem == null) return
-        player.setPlaybackSpeed(playerPreferences.defaultPlaybackSpeed)
+        audioModeController.requestSpeed(player, playerPreferences.defaultPlaybackSpeed)
         applySubtitleCalibration(player, activeSubtitleCalibration)
     }
 
@@ -1492,7 +1529,7 @@ class PlayerService : MediaSessionService() {
                     val playbackSpeed = args.getFloat(CustomCommands.PLAYBACK_SPEED_KEY)
                     val player = mediaSession?.player
                         ?: return@future SessionResult(SessionError.ERROR_BAD_VALUE)
-                    player.setPlaybackSpeed(playbackSpeed)
+                    audioModeController.requestSpeed(player, playbackSpeed)
                     return@future SessionResult(SessionResult.RESULT_SUCCESS)
                 }
 
@@ -1500,7 +1537,7 @@ class PlayerService : MediaSessionService() {
                     val playbackSpeed = args.getFloat(CustomCommands.PLAYBACK_SPEED_KEY)
                     val player = mediaSession?.player
                         ?: return@future SessionResult(SessionError.ERROR_BAD_VALUE)
-                    player.setPlaybackSpeed(playbackSpeed)
+                    audioModeController.requestSpeed(player, playbackSpeed)
                     return@future SessionResult(SessionResult.RESULT_SUCCESS)
                 }
 
@@ -1689,6 +1726,8 @@ class PlayerService : MediaSessionService() {
             context = applicationContext,
             audioProcessors = audioEffectsCoordinator.createAudioProcessors(preferences),
             shouldUseAudioExtensionFallback = shouldUseAudioExtensionFallback,
+            audioModeController = audioModeController,
+            downmixNarrowRoute = preferences.isDownmixNarrowRouteEnabled,
         )
             .setMediaCodecSelector(DolbyPreferringMediaCodecSelector)
             .setEnableDecoderFallback(shouldEnableDecoderFallback)
@@ -1719,6 +1758,7 @@ class PlayerService : MediaSessionService() {
                 applySeekParameters(it)
                 it.addListener(playbackStateListener)
                 it.addAnalyticsListener(startupAnalyticsListener)
+                audioModeController.attach(it)
                 it.repeatMode = when (preferences.loopMode) {
                     LoopMode.OFF -> Player.REPEAT_MODE_OFF
                     LoopMode.ONE -> Player.REPEAT_MODE_ONE
@@ -1870,6 +1910,7 @@ class PlayerService : MediaSessionService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        audioModeController.cancel()
         customPictureInPictureOverlay?.dismiss()
         customPictureInPictureOverlay = null
         audioEffectsCoordinator.releaseLoudnessEnhancer()

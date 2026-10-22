@@ -11,6 +11,10 @@ import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import one.only.player.feature.player.service.audio.AudioModeController
+import one.only.player.feature.player.service.audio.AudioPassthroughGateSink
+import one.only.player.feature.player.service.audio.DownmixAudioProcessor
+import one.only.player.feature.player.service.audio.PcmRoute
 import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegAudioRenderer
@@ -22,6 +26,8 @@ class NormalizingRenderersFactory(
     context: Context,
     private val audioProcessors: Array<AudioProcessor>,
     private val shouldUseAudioExtensionFallback: Boolean,
+    private val audioModeController: AudioModeController,
+    private val downmixNarrowRoute: Boolean,
 ) : NextRenderersFactory(context) {
 
     override fun buildVideoRenderers(
@@ -71,11 +77,18 @@ class NormalizingRenderersFactory(
         context: Context,
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean,
-    ): AudioSink = DefaultAudioSink.Builder(context)
-        .setEnableFloatOutput(enableFloatOutput)
-        .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
-        .setAudioProcessors(audioProcessors)
-        .build()
+    ): AudioSink {
+        val routePcmChannels = PcmRoute.channels(context)
+        val downmix = DownmixAudioProcessor(downmixNarrowRoute, routePcmChannels)
+        val sink = DefaultAudioSink.Builder(context)
+            .setEnableFloatOutput(enableFloatOutput)
+            .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
+            // The fold goes first, so the normalization below sees two channels — which is what
+            // will actually leave the box.
+            .setAudioProcessors(arrayOf(downmix, *audioProcessors))
+            .build()
+        return AudioPassthroughGateSink(sink).also { audioModeController.attach(it) }
+    }
 
     override fun buildAudioRenderers(
         context: Context,

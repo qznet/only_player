@@ -259,6 +259,12 @@
     <string name="volume_normalization">音量标准化</string>
     <string name="volume_normalization_desc">通过动态范围处理缓和音量忽大忽小</string>
     <string name="spatial_audio">空间音频</string>
+    <string name="audio_passthrough">码流直通到功放</string>
+    <string name="audio_passthrough_desc">正常速度下把压缩音轨原样交给功放解码；关闭则全部在本机解码</string>
+    <string name="audio_passthrough_normal_speed">仅在正常速度下直通</string>
+    <string name="audio_passthrough_normal_speed_desc">码流无法随速度伸缩，其他速度会自动解码成 PCM；关闭则任何速度都保持直通，变速会被忽略</string>
+    <string name="audio_downmix_narrow_route">窄输出下折混环绕声</string>
+    <string name="audio_downmix_narrow_route_desc">解码出的 5.1 送到只有两个声道的出口时，由本机折混（留有余量），而不是交给会导致削顶的系统折混</string>
     <string name="fields">字段</string>
     <string name="system_caption_style">系统字幕样式</string>
     <string name="thumbnail">缩略图</string>

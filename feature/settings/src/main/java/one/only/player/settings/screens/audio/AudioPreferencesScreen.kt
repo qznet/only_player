@@ -206,6 +206,31 @@ private fun AudioPreferencesContent(
                     isChecked = uiState.preferences.isVolumeBoostEnabled,
                     onClick = { onEvent(AudioPreferencesUiEvent.ToggleVolumeBoost) },
                 )
+                PreferenceSwitch(
+                    modifier = Modifier.testTag("switch_settings_audio_passthrough"),
+                    title = stringResource(R.string.audio_passthrough),
+                    description = stringResource(R.string.audio_passthrough_desc),
+                    icon = AppIcons.SurroundSound,
+                    isChecked = uiState.preferences.isAudioPassthroughEnabled,
+                    onClick = { onEvent(AudioPreferencesUiEvent.ToggleAudioPassthrough) },
+                )
+                PreferenceSwitch(
+                    modifier = Modifier.testTag("switch_settings_audio_passthrough_normal_speed"),
+                    title = stringResource(R.string.audio_passthrough_normal_speed),
+                    description = stringResource(R.string.audio_passthrough_normal_speed_desc),
+                    icon = AppIcons.SurroundSound,
+                    isEnabled = uiState.preferences.isAudioPassthroughEnabled,
+                    isChecked = uiState.preferences.isPassthroughAtNormalSpeedOnly,
+                    onClick = { onEvent(AudioPreferencesUiEvent.TogglePassthroughNormalSpeedOnly) },
+                )
+                PreferenceSwitch(
+                    modifier = Modifier.testTag("switch_settings_audio_downmix_narrow_route"),
+                    title = stringResource(R.string.audio_downmix_narrow_route),
+                    description = stringResource(R.string.audio_downmix_narrow_route_desc),
+                    icon = AppIcons.VolumeUp,
+                    isChecked = uiState.preferences.isDownmixNarrowRouteEnabled,
+                    onClick = { onEvent(AudioPreferencesUiEvent.ToggleDownmixNarrowRoute) },
+                )
             }
 
             AudioEqualizerSettings(

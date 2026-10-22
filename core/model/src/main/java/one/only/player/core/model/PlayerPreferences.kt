@@ -70,6 +70,11 @@ data class PlayerPreferences(
     val isVolumeNormalizationEnabled: Boolean = false,
     val isSpatialAudioEnabled: Boolean = true,
     val shouldApplyAudioEqualizer: Boolean = false,
+
+    // 音频输出（直通 / 解码 / 下混）
+    val isAudioPassthroughEnabled: Boolean = true,
+    val isPassthroughAtNormalSpeedOnly: Boolean = true,
+    val isDownmixNarrowRouteEnabled: Boolean = true,
     val audioEqualizerBandLevels: List<Int> = DEFAULT_AUDIO_EQUALIZER_BAND_LEVELS,
     val audioEqualizerPresets: List<AudioEqualizerPreset> = emptyList(),
 

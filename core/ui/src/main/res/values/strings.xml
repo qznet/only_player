@@ -279,6 +279,12 @@
     <string name="volume_normalization">Volume normalization</string>
     <string name="volume_normalization_desc">Reduce volume swings with dynamic range processing</string>
     <string name="spatial_audio">Spatial audio</string>
+    <string name="audio_passthrough">Bitstream to receiver</string>
+    <string name="audio_passthrough_desc">Hand a compressed track to the receiver untouched at normal speed. Off decodes everything here.</string>
+    <string name="audio_passthrough_normal_speed">Bitstream only at normal speed</string>
+    <string name="audio_passthrough_normal_speed_desc">A bitstream cannot be time-stretched, so other speeds decode to PCM. Off keeps the bitstream at every speed and speed changes are ignored.</string>
+    <string name="audio_downmix_narrow_route">Fold surround for a narrow output</string>
+    <string name="audio_downmix_narrow_route_desc">Decoded 5.1 on an output that carries two channels is folded here, with headroom, instead of by the system which clips it.</string>
     <string name="system_caption_style">System caption style</string>
     <string name="system_caption_style_desc">Click to open system captioning preferences</string>
     <string name="fields">Fields</string>
