@@ -29,10 +29,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.serialization.Serializable
 import one.only.player.core.ui.R as UiR
+import one.only.player.core.ui.components.isTvDevice
 import one.only.player.core.ui.components.surfaceBlur
 import one.only.player.core.ui.designsystem.AppIcons
 import one.only.player.core.ui.extensions.LocalRootBottomBarPadding
@@ -179,6 +182,12 @@ fun RootBottomBar(
 
     val isBlurEnabled = floatingBlurBackdrop != null
     val barColor = if (isBlurEnabled) Color.Transparent else MiuixTheme.colorScheme.surface
+    val isTv = isTvDevice()
+    val bottomBarFocusRequester = remember { FocusRequester() }
+    if (isTv) {
+        // TV 上请求初始焦点到当前选中的 Tab，使遥控器 DPAD 能开始导航（Tab 本身已是 clickable 可聚焦）。
+        LaunchedEffect(Unit) { bottomBarFocusRequester.requestFocus() }
+    }
     NavigationBar(
         modifier = modifier.surfaceBlur(floatingBlurBackdrop),
         color = barColor,
@@ -188,6 +197,7 @@ fun RootBottomBar(
                 destination = target,
                 isSelected = currentRoot == target,
                 onClick = { onTabSelected(target) },
+                focusRequester = if (currentRoot == target) bottomBarFocusRequester else null,
             )
         }
     }
@@ -206,6 +216,12 @@ private fun FloatingRootBottomBar(
     val fallbackBackdrop = rememberLayerBackdrop { drawContent() }
     val backdrop = blurBackdrop ?: fallbackBackdrop
     val selectedIndex = destinations.indexOf(currentRoot).coerceAtLeast(0)
+    val isTv = isTvDevice()
+    val bottomBarFocusRequester = remember { FocusRequester() }
+    if (isTv) {
+        // TV 上请求初始焦点到当前选中的 Tab，使遥控器 DPAD 能开始导航。
+        LaunchedEffect(Unit) { bottomBarFocusRequester.requestFocus() }
+    }
 
     FloatingBottomBar(
         modifier = modifier.padding(bottom = navigationBarsBottom + 12.dp),
@@ -217,11 +233,12 @@ private fun FloatingRootBottomBar(
     ) {
         destinations.forEach { target ->
             val label = stringResource(target.labelRes)
-            FloatingBottomBarItem(
-                onClick = { onTabSelected(target) },
-                modifier = Modifier
-                    .defaultMinSize(minWidth = 76.dp)
-                    .testTag(target.tag),
+                FloatingBottomBarItem(
+                    onClick = { onTabSelected(target) },
+                    modifier = Modifier
+                        .defaultMinSize(minWidth = 76.dp)
+                        .testTag(target.tag)
+                        .then(if (currentRoot == target) Modifier.focusRequester(bottomBarFocusRequester) else Modifier),
             ) {
                 // 图标恒用 onSurface，选中态由上层 tint 采样药丸表现
                 Icon(
@@ -249,6 +266,7 @@ private fun RowScope.RootNavigationBarItem(
     isSelected: Boolean,
     itemHeight: androidx.compose.ui.unit.Dp = NAV_BAR_CONTENT_HEIGHT,
     onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
 ) {
     val tint = if (isSelected) {
         MiuixTheme.colorScheme.onSurfaceContainer
@@ -256,12 +274,14 @@ private fun RowScope.RootNavigationBarItem(
         MiuixTheme.colorScheme.onSurfaceContainer.copy(alpha = 0.45f)
     }
     val label = stringResource(destination.labelRes)
+    val focusModifier = if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier
 
     Column(
         modifier = Modifier
             .height(itemHeight)
             .weight(1f)
             .testTag(destination.tag)
+            .then(focusModifier)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,

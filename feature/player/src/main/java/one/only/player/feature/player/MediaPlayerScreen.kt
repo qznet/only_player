@@ -80,6 +80,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -116,6 +119,7 @@ import one.only.player.core.model.playerControls
 import one.only.player.core.model.slotOf
 import one.only.player.core.ui.R as coreUiR
 import one.only.player.core.ui.components.AppDialog
+import one.only.player.core.ui.components.isTvDevice
 import one.only.player.core.ui.components.AudioEqualizerPanel
 import one.only.player.core.ui.components.AudioEqualizerPresetListContent
 import one.only.player.core.ui.components.SavePresetNameDialog
@@ -666,8 +670,21 @@ internal fun MediaPlayerScreen(
             },
         )
     }
+    val isTv = isTvDevice()
+    val controlsFocusRequester = remember { FocusRequester() }
+    val controlsHaveFocus = remember { mutableStateOf(false) }
+    // TV：控制栏出现时把焦点拉入控制栏，交由焦点系统做 DPAD 导航与确认
+    LaunchedEffect(controlsVisibilityState.isControlsVisible && !controlsVisibilityState.isControlsLocked && isTv) {
+        if (controlsVisibilityState.isControlsVisible && !controlsVisibilityState.isControlsLocked && isTv) {
+            controlsFocusRequester.requestFocus()
+        }
+    }
     val keyboardEventHandler: (KeyEvent) -> Boolean = keyboardHandler@{ event ->
         if (!keyboardInteractionEnabledState.value) return@keyboardHandler false
+        // TV：控制栏可见且焦点已在控制栏内时，不吞键，交还焦点系统导航/确认
+        if (isTv && controlsVisibilityState.isControlsVisible && controlsHaveFocus.value) {
+            return@keyboardHandler false
+        }
         keyboardController.handleKeyEvent(event)
     }
     val longPressOverlayUiState = resolveLongPressOverlayUiState(
@@ -1040,6 +1057,7 @@ internal fun MediaPlayerScreen(
                     )
                 } else {
                     PlayerControlsView(
+                        onControlsFocusChanged = { controlsHaveFocus.value = it },
                         topView = {
                             AnimatedVisibility(
                                 visible = controlsVisibilityState.isControlsVisible && !controlsVisibilityState.isControlsLocked,
@@ -1078,6 +1096,7 @@ internal fun MediaPlayerScreen(
                                 exit = fadeOut(),
                             ) {
                                 ControlsBottomModernView(
+                                    initialFocusRequester = controlsFocusRequester,
                                     mediaPresentationState = mediaPresentationState,
                                     pendingSeekPosition = seekGestureState.pendingSeekPosition,
                                     isPlaying = mediaPresentationState.isPlaying,
@@ -2186,12 +2205,15 @@ private fun LongPressSpeedArrow(alpha: Float) {
 @Composable
 fun PlayerControlsView(
     modifier: Modifier = Modifier,
+    onControlsFocusChanged: ((Boolean) -> Unit)? = null,
     topView: @Composable () -> Unit,
     middleView: @Composable BoxScope.() -> Unit,
     bottomView: @Composable () -> Unit,
 ) {
     Box(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .onFocusChanged { onControlsFocusChanged?.invoke(it.hasFocus) },
         contentAlignment = Alignment.Center,
     ) {
         Column {

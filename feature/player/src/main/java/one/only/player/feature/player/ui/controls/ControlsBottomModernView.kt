@@ -36,6 +36,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.node.DelegatableNode
@@ -63,6 +65,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 internal fun ControlsBottomModernView(
     modifier: Modifier = Modifier,
+    initialFocusRequester: FocusRequester? = null,
     mediaPresentationState: MediaPresentationState,
     pendingSeekPosition: Long?,
     isPlaying: Boolean,
@@ -109,7 +112,9 @@ internal fun ControlsBottomModernView(
         ) {
             CompositionLocalProvider(LocalIndication provides NoOpIndication) {
                 MiuixIconButton(
-                    modifier = Modifier.testTag("btn_play_pause_modern"),
+                    modifier = Modifier
+                        .testTag("btn_play_pause_modern")
+                        .then(if (initialFocusRequester != null) Modifier.focusRequester(initialFocusRequester) else Modifier),
                     onClick = onPlayPauseClick,
                 ) {
                     Crossfade(
