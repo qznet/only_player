@@ -11,7 +11,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -38,7 +37,6 @@ fun isTvDevice(): Boolean {
  *
  * 手机端不加任何焦点修饰符、也不请求焦点，触摸体验完全不受影响。
  */
-@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun TvInitialFocusColumn(
     modifier: Modifier = Modifier,
@@ -57,7 +55,7 @@ fun TvInitialFocusColumn(
     val tvModifier = if (isTv) {
         Modifier
             .focusRequester(focusRequester)
-            .focusProperties { enter = { FocusRequester.First } }
+            .focusProperties { enter = { FocusRequester.Default } }
             .focusable()
     } else {
         Modifier
