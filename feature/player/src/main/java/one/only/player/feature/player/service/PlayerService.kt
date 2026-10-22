@@ -269,11 +269,11 @@ class PlayerService : MediaSessionService() {
 
     private val audioModeController = AudioModeController(
         preferences = { playerPreferences },
-        onReselectRequested = { delayMs ->
+        onReselectRequested = { delayMs: Long ->
             mainHandler.removeCallbacks(audioModeReselectRunnable)
             mainHandler.postDelayed(audioModeReselectRunnable, delayMs.coerceAtLeast(0L))
         },
-        onRateReady = { player, speed -> player.setPlaybackSpeed(speed) },
+        onRateReady = { player: Player, speed: Float -> player.setPlaybackSpeed(speed) },
     )
     private val videoEffectsCoordinator = VideoEffectsCoordinator(
         scope = serviceScope,

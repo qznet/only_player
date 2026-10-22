@@ -22,7 +22,7 @@ import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegVideoRenderer
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory
 
 @OptIn(UnstableApi::class)
-class NormalizingRenderersFactory(
+class NormalizingRenderersFactory internal constructor(
     context: Context,
     private val audioProcessors: Array<AudioProcessor>,
     private val shouldUseAudioExtensionFallback: Boolean,
