@@ -1,6 +1,9 @@
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+
 package one.only.player.navigation
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +34,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -112,6 +116,11 @@ fun RootScaffold(
         shouldBlurNavigationBar = shouldBlurFloatingNavigationBar,
     )
 
+    // 底栏 UP 的落点：当前页内容容器。底栏与分页是兄弟节点，几何搜索不会可靠地跨回去，
+    // 焦点一到这排就回不到上面的列表；显式交给它才回得去。
+    // 容器自身也可聚焦：FocusRequester 只能落在可聚焦节点上，否则 requestFocus 无效。
+    val pageContentFocusRequester = remember { FocusRequester() }
+
     Box(modifier = modifier.fillMaxSize()) {
         HorizontalPager(
             modifier = Modifier
@@ -123,7 +132,14 @@ fun RootScaffold(
             key = { page -> destinations[page] },
         ) { page ->
             CompositionLocalProvider(LocalRootBottomBarPadding provides bottomBarPadding) {
-                content(destinations[page])
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .focusRequester(pageContentFocusRequester)
+                        .focusable(),
+                ) {
+                    content(destinations[page])
+                }
             }
         }
         RootBottomBar(
@@ -133,6 +149,7 @@ fun RootScaffold(
             floatingBlurBackdrop = floatingBlurBackdrop,
             onTabSelected = rootNavigationState::animateTo,
             modifier = Modifier.align(Alignment.BottomCenter),
+            contentFocusRequester = pageContentFocusRequester,
         )
     }
 }
@@ -169,6 +186,7 @@ fun RootBottomBar(
     shouldUseFloatingNavigationBar: Boolean,
     floatingBlurBackdrop: Backdrop?,
     modifier: Modifier = Modifier,
+    contentFocusRequester: FocusRequester? = null,
     onTabSelected: (RootDestination) -> Unit,
 ) {
     if (shouldUseFloatingNavigationBar) {
@@ -177,6 +195,7 @@ fun RootBottomBar(
             destinations = destinations,
             blurBackdrop = floatingBlurBackdrop,
             modifier = modifier,
+            contentFocusRequester = contentFocusRequester,
             onTabSelected = onTabSelected,
         )
         return
@@ -200,6 +219,7 @@ fun RootBottomBar(
                 isSelected = currentRoot == target,
                 onClick = { onTabSelected(target) },
                 focusRequester = if (currentRoot == target) bottomBarFocusRequester else null,
+                upFocusRequester = contentFocusRequester,
             )
         }
     }
@@ -211,6 +231,7 @@ private fun FloatingRootBottomBar(
     destinations: List<RootDestination>,
     blurBackdrop: Backdrop?,
     modifier: Modifier = Modifier,
+    contentFocusRequester: FocusRequester? = null,
     onTabSelected: (RootDestination) -> Unit,
 ) {
     val navigationBarsBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -241,6 +262,7 @@ private fun FloatingRootBottomBar(
                         .defaultMinSize(minWidth = 76.dp)
                         .testTag(target.tag)
                         .then(if (currentRoot == target) Modifier.focusRequester(bottomBarFocusRequester) else Modifier)
+                        .focusProperties { up = contentFocusRequester ?: FocusRequester.Default }
                         .tvFocusRing(shape = RoundedCornerShape(16.dp)),
             ) {
                 // 图标恒用 onSurface，选中态由上层 tint 采样药丸表现
@@ -270,6 +292,7 @@ private fun RowScope.RootNavigationBarItem(
     itemHeight: androidx.compose.ui.unit.Dp = NAV_BAR_CONTENT_HEIGHT,
     onClick: () -> Unit,
     focusRequester: FocusRequester? = null,
+    upFocusRequester: FocusRequester? = null,
 ) {
     val tint = if (isSelected) {
         MiuixTheme.colorScheme.onSurfaceContainer
@@ -285,6 +308,9 @@ private fun RowScope.RootNavigationBarItem(
             .weight(1f)
             .testTag(destination.tag)
             .then(focusModifier)
+            // 底栏与分页内容是兄弟节点，UP 的几何搜索不会可靠地跨回去，焦点一到这排就回不去上面的列表。
+            // 显式把 UP 交给当前页首行，遥控器才能从底栏回到文件列表。
+            .focusProperties { up = upFocusRequester ?: FocusRequester.Default }
             .tvFocusRing(shape = RoundedCornerShape(12.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },

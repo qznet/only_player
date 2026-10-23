@@ -61,16 +61,20 @@ internal class AudioPassthroughGateSink(sink: AudioSink) : ForwardingAudioSink(s
     /**
      * Asks the renderer to decode rather than bitstream.
      *
-     * The answer for a refused format is
-     * [AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING], not [AudioSink.SINK_FORMAT_UNSUPPORTED].
-     * Unsupported means "no renderer can take this track at all", so media3 drops the track and the
-     * file goes silent — which is not a decode. Supported-with-transcoding is the answer that means
-     * "decode it for me": the renderer keeps the track, runs it through the decoder, and configures
-     * the sink with AUDIO_RAW, which is what [isPassthrough] then reports as off.
+     * Two different questions, two different answers, and both have to be gated:
      *
-     * This is also the only place the gate can live. [supportsFormat] cannot express it: a
-     * decodable compressed format is supported either way, and it is the passthrough-vs-decode
-     * decision that [getFormatSupport] exists to answer.
+     * - [getFormatSupport] decides whether the track survives at all.
+     *   [AudioSink.SINK_FORMAT_UNSUPPORTED] means "no renderer can take this track", so media3
+     *   drops it and the file goes silent — which is not a decode.
+     *   [AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING] means "decode it for me": the renderer
+     *   keeps the track, runs it through the decoder, and configures the sink with AUDIO_RAW,
+     *   which is what [isPassthrough] then reports as off.
+     * - [supportsFormat] decides bypass, not survival.
+     *   [androidx.media3.exoplayer.audio.MediaCodecAudioRenderer.shouldUseBypass] ends in
+     *   `audioSink.supportsFormat(format)`, and [DefaultAudioSink.supportsFormat] is exactly
+     *   `getFormatSupport(format) != UNSUPPORTED`. So the same gate has to be visible here too, or
+     *   the renderer keeps choosing the bitstream and the sink is configured with the encoded
+     *   format — which is the passthrough this class exists to prevent.
      */
     override fun getFormatSupport(format: Format): Int =
         if (refused(format)) {
@@ -78,4 +82,7 @@ internal class AudioPassthroughGateSink(sink: AudioSink) : ForwardingAudioSink(s
         } else {
             super.getFormatSupport(format)
         }
+
+    override fun supportsFormat(format: Format): Boolean =
+        !refused(format) && super.supportsFormat(format)
 }
