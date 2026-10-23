@@ -58,9 +58,24 @@ internal class AudioPassthroughGateSink(sink: AudioSink) : ForwardingAudioSink(s
         super.configure(config)
     }
 
+    /**
+     * Asks the renderer to decode rather than bitstream.
+     *
+     * The answer for a refused format is
+     * [AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING], not [AudioSink.SINK_FORMAT_UNSUPPORTED].
+     * Unsupported means "no renderer can take this track at all", so media3 drops the track and the
+     * file goes silent — which is not a decode. Supported-with-transcoding is the answer that means
+     * "decode it for me": the renderer keeps the track, runs it through the decoder, and configures
+     * the sink with AUDIO_RAW, which is what [isPassthrough] then reports as off.
+     *
+     * This is also the only place the gate can live. [supportsFormat] cannot express it: a
+     * decodable compressed format is supported either way, and it is the passthrough-vs-decode
+     * decision that [getFormatSupport] exists to answer.
+     */
     override fun getFormatSupport(format: Format): Int =
-        if (refused(format)) AudioSink.SINK_FORMAT_UNSUPPORTED else super.getFormatSupport(format)
-
-    override fun supportsFormat(format: Format): Boolean =
-        !refused(format) && super.supportsFormat(format)
+        if (refused(format)) {
+            AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING
+        } else {
+            super.getFormatSupport(format)
+        }
 }

@@ -133,5 +133,38 @@ fun TvInitialFocusColumn(
             )
         }
         content()
+        if (isTv) {
+            TvFocusBottomTrap()
+        }
     }
+}
+
+/**
+ * Keeps DPAD_DOWN inside a settings list.
+ *
+ * The root bottom bar is a sibling of the pager, not a child of this column, so once the list has
+ * scrolled to its end there is nothing below the last row for a geometric focus search to find —
+ * and it finds the bottom bar instead. Focus leaves the page, and the bar's own initial-focus
+ * request then pulls the viewer out of the settings they were in.
+ *
+ * So the list ends in a node that is focusable but takes no focus of its own: landing on it moves
+ * focus back up to the last real row. Pressing DOWN at the bottom of a page therefore stays on the
+ * last row, which is what the list means by "no more rows".
+ *
+ * It has to be a real focus target rather than a focusProperties hint — the hint is only consulted
+ * for a node that already has focus, and the escape happens precisely at the row that has it.
+ */
+@Composable
+private fun TvFocusBottomTrap() {
+    val focusManager = LocalFocusManager.current
+    Box(
+        modifier = Modifier
+            .size(1.dp)
+            .onFocusChanged { state ->
+                if (state.isFocused) {
+                    focusManager.moveFocus(FocusDirection.Up)
+                }
+            }
+            .focusable(),
+    )
 }
